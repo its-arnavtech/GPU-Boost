@@ -1,0 +1,28 @@
+GPUBoost Phase 1 GPU Inspector
+
+System:
+- OS: Windows-11-10.0.26200-SP0
+- Python: 3.12.10
+- CPU: Intel64 Family 6 Model 170 Stepping 4, GenuineIntel
+- CPU cores: physical 16, logical 22
+- RAM: 23.37 GB
+
+PyTorch/CUDA:
+- PyTorch installed: Yes
+- PyTorch version: 2.11.0+cpu
+- CUDA available: No
+- Torch CUDA version: Unknown
+- cuDNN version: Unknown
+- Device count: 0
+
+GPUs:
+- GPU 0: NVIDIA GeForce RTX 4060 Laptop GPU
+  UUID: GPU-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  Architecture: Ada
+  VRAM: 257 used / 7931 free / 8188 total MB
+  Compute capability: Unknown
+  Tensor Cores: Yes
+  Utilization: GPU 0.0%, memory 0.0%
+  Temperature: 55.0 C
+  Power: 1.5 W / 90.0 W
+

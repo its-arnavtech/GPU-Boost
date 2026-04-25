@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gpuboost"
+version = "0.1.0"
+description = "A Phase 1 NVIDIA GPU and system inspection CLI for GPUBoost."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [
+  { name = "GPUBoost contributors" }
+]
+keywords = ["gpu", "nvidia", "cuda", "pytorch", "optimization"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: System :: Hardware",
+  "Topic :: Utilities",
+]
+dependencies = [
+  "torch",
+  "psutil",
+  "nvidia-ml-py",
+  "rich",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "ruff",
+]
+
+[project.scripts]
+gpuboost = "gpuboost.cli.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["gpuboost"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
