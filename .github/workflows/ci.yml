@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - phase2
+      - "phase/**"
+      - "feature/**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test on Python ${{ matrix.python-version }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install package with dev dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Run Ruff lint
+        run: ruff check .
+
+      - name: Run tests
+        run: pytest
+
+      - name: Smoke test CLI info JSON
+        run: python -m gpuboost info --json
+
+      - name: Smoke test benchmark JSON
+        run: python -m gpuboost benchmark --quick --json
