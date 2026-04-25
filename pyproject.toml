@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "gpuboost"
 version = "0.1.0"
-description = "A Phase 1 NVIDIA GPU and system inspection CLI for GPUBoost."
+description = "NVIDIA GPU inspection and synthetic benchmark CLI for GPUBoost."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
@@ -50,4 +50,3 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 88
 target-version = "py39"
-
