@@ -23,3 +23,18 @@ def test_import_inspectors() -> None:
     assert callable(collect_system_profile)
     assert callable(collect_torch_environment)
     assert callable(collect_profile)
+
+
+def test_import_benchmarks() -> None:
+    from gpuboost.benchmarks.batch_sweep import run_batch_sweep_benchmark
+    from gpuboost.benchmarks.dataloader import run_dataloader_benchmark
+    from gpuboost.benchmarks.matmul import run_matmul_benchmark
+    from gpuboost.benchmarks.mixed_precision import run_mixed_precision_benchmark
+    from gpuboost.benchmarks.runner import run_full_benchmark, run_quick_benchmark
+
+    assert callable(run_matmul_benchmark)
+    assert callable(run_mixed_precision_benchmark)
+    assert callable(run_batch_sweep_benchmark)
+    assert callable(run_dataloader_benchmark)
+    assert callable(run_quick_benchmark)
+    assert callable(run_full_benchmark)
