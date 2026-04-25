@@ -5,25 +5,35 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.pyre/
+.tox/
+.nox/
 .coverage
 coverage.xml
 htmlcov/
+.ipynb_checkpoints/
 
 # Virtual environments
 .venv/
 venv/
 env/
 ENV/
+.conda/
 
 # Build artifacts
 build/
 dist/
 *.egg-info/
 *.egg
+.eggs/
+site/
 
 # Logs
 *.log
 logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Local GPUBoost output
 reports/
@@ -31,17 +41,60 @@ reports/
 *.report.html
 gpuboost-report.*
 .gpuboost/
+*.prof
+*.profile
+*.trace
+*.sqlite
+*.sqlite3
+*.db
 
-# Environment files
+# Environment and secrets
 .env
 .env.*
+!.env.example
+!.env.sample
+*.secret
+*.secrets
+secrets/
+credentials/
+credentials.json
+service-account*.json
+*-service-account.json
+token.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
 
 # OS files
 .DS_Store
 Thumbs.db
 Desktop.ini
+$RECYCLE.BIN/
 
 # Editors
 .idea/
 .vscode/
+*.swp
+*.swo
 
+# Package manager caches
+.pip/
+.uv-cache/
+.cache/
+
+# Large local ML artifacts
+checkpoints/
+models/
+weights/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
