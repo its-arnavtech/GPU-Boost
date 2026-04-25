@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import statistics
-import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import TypeVar
@@ -69,19 +68,63 @@ def synchronize_if_cuda() -> None:
 def timed_cuda(fn: Callable[[], T], warmup: int = 3, repeats: int = 10) -> float:
     """Time a CUDA workload and return the median elapsed seconds."""
 
+    timing = time_cuda_callable(fn, warmup=warmup, repeats=repeats)
+    return float(timing["median_ms"]) / 1000
+
+
+def time_cuda_callable(
+    fn: Callable[[], T],
+    warmup: int = 10,
+    repeats: int = 30,
+) -> dict[str, float | int]:
+    """Time a CUDA callable with CUDA events and return millisecond stats."""
+
+    import torch
+
     for _ in range(warmup):
         fn()
-    synchronize_if_cuda()
 
-    timings: list[float] = []
+    torch.cuda.synchronize()
+    timings_ms: list[float] = []
     for _ in range(repeats):
-        synchronize_if_cuda()
-        started = time.perf_counter()
+        start_event = torch.cuda.Event(enable_timing=True)
+        end_event = torch.cuda.Event(enable_timing=True)
+        torch.cuda.synchronize()
+        start_event.record()
         fn()
-        synchronize_if_cuda()
-        timings.append(time.perf_counter() - started)
+        end_event.record()
+        torch.cuda.synchronize()
+        timings_ms.append(float(start_event.elapsed_time(end_event)))
 
-    return statistics.median(timings)
+    return {
+        "median_ms": statistics.median(timings_ms),
+        "min_ms": min(timings_ms),
+        "max_ms": max(timings_ms),
+        "repeats": repeats,
+    }
+
+
+def is_oom_error(exc: BaseException) -> bool:
+    """Return whether an exception looks like CUDA out-of-memory."""
+
+    return "out of memory" in str(exc).lower()
+
+
+def clear_cuda_memory() -> None:
+    """Synchronize and release cached CUDA memory when possible."""
+
+    synchronize_if_cuda()
+    safe_empty_cache()
+
+
+def round_metric(value: float | int | str | bool | None, digits: int = 3):
+    """Round numeric metrics while preserving strings, booleans, and None."""
+
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, int):
+        return value
+    return round(float(value), digits)
 
 
 def safe_empty_cache() -> None:

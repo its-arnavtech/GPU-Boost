@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from gpuboost.benchmarks.common import round_metric
 from gpuboost.schemas.benchmark_result import BenchmarkResult, BenchmarkSuiteResult
 from gpuboost.schemas.gpu_profile import GPUBoostProfile
 
@@ -23,6 +24,23 @@ def _metric_value(result: BenchmarkResult, name: str) -> object | None:
         if item.name == name:
             return item.value
     return None
+
+
+def _human_metric(
+    result: BenchmarkResult,
+    name: str,
+    suffix: str = "",
+    digits: int = 2,
+) -> str:
+    value = _metric_value(result, name)
+    if value is None:
+        return "Unknown"
+    rounded = round_metric(value, digits=digits)
+    if isinstance(rounded, float):
+        text = f"{rounded:.{digits}f}"
+    else:
+        text = str(rounded)
+    return f"{text}{suffix}"
 
 
 def format_profile(profile: GPUBoostProfile) -> str:
@@ -103,12 +121,9 @@ def format_benchmark_suite(suite: BenchmarkSuiteResult) -> str:
             [
                 "Matrix Multiplication:",
                 f"- Status: {matmul.status}",
-                "- Best FP32: "
-                f"{_display(_metric_value(matmul, 'best_fp32_tflops'), ' TFLOPS')}",
-                "- Best FP16: "
-                f"{_display(_metric_value(matmul, 'best_fp16_tflops'), ' TFLOPS')}",
-                "- FP16 speedup: "
-                f"{_display(_metric_value(matmul, 'fp16_speedup_ratio'), 'x')}",
+                f"- Best FP32: {_human_metric(matmul, 'best_fp32_tflops', ' TFLOPS')}",
+                f"- Best FP16: {_human_metric(matmul, 'best_fp16_tflops', ' TFLOPS')}",
+                f"- FP16 speedup: {_human_metric(matmul, 'fp16_speedup_ratio', 'x')}",
                 "- Tensor Cores likely active: "
                 f"{_yes_no(_metric_value(matmul, 'tensor_cores_likely_active'))}",
                 "",
@@ -122,11 +137,14 @@ def format_benchmark_suite(suite: BenchmarkSuiteResult) -> str:
                 "Mixed Precision:",
                 f"- Status: {mixed.status}",
                 "- FP32 throughput: "
-                f"{_display(_metric_value(mixed, 'fp32_samples_per_sec'), ' samples/sec')}",
+                f"{_human_metric(mixed, 'fp32_samples_per_sec', ' samples/sec', digits=1)}",
                 "- AMP throughput: "
-                f"{_display(_metric_value(mixed, 'amp_samples_per_sec'), ' samples/sec')}",
-                "- AMP speedup: "
-                f"{_display(_metric_value(mixed, 'amp_speedup_ratio'), 'x')}",
+                f"{_human_metric(mixed, 'amp_samples_per_sec', ' samples/sec', digits=1)}",
+                f"- AMP speedup: {_human_metric(mixed, 'amp_speedup_ratio', 'x')}",
+                "- Median FP32 step: "
+                f"{_human_metric(mixed, 'median_fp32_step_ms', ' ms', digits=3)}",
+                "- Median AMP step: "
+                f"{_human_metric(mixed, 'median_amp_step_ms', ' ms', digits=3)}",
                 "",
             ]
         )
@@ -139,9 +157,8 @@ def format_benchmark_suite(suite: BenchmarkSuiteResult) -> str:
                 f"- Status: {batch.status}",
                 f"- Best batch size: {_display(_metric_value(batch, 'best_batch_size'))}",
                 "- Best throughput: "
-                f"{_display(_metric_value(batch, 'best_images_per_sec'), ' images/sec')}",
-                "- Speedup vs batch=1: "
-                f"{_display(_metric_value(batch, 'speedup_vs_batch_1'), 'x')}",
+                f"{_human_metric(batch, 'best_images_per_sec', ' images/sec', digits=1)}",
+                f"- Speedup vs batch=1: {_human_metric(batch, 'speedup_vs_batch_1', 'x')}",
                 "",
             ]
         )
@@ -157,7 +174,7 @@ def format_benchmark_suite(suite: BenchmarkSuiteResult) -> str:
                 "- Best pin_memory: "
                 f"{_display(_metric_value(dataloader, 'best_pin_memory'))}",
                 "- Best throughput: "
-                f"{_display(_metric_value(dataloader, 'best_samples_per_sec'), ' samples/sec')}",
+                f"{_human_metric(dataloader, 'best_samples_per_sec', ' samples/sec', digits=1)}",
                 "",
             ]
         )

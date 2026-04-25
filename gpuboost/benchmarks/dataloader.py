@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import platform
 import time
 import warnings as py_warnings
 
@@ -129,19 +130,26 @@ def run_dataloader_benchmark(device_index: int = 0) -> BenchmarkResult:
     best_num_workers, best_pin_memory = best_key
     best_samples_per_sec = throughput[best_key]
 
-    best_without_pin = max(
-        (value for (workers, pin), value in throughput.items() if not pin),
-        default=None,
-    )
-    best_with_pin = max(
-        (value for (workers, pin), value in throughput.items() if pin),
-        default=None,
-    )
+    comparable_worker = best_num_workers
+    if (comparable_worker, False) not in throughput or (
+        comparable_worker,
+        True,
+    ) not in throughput:
+        comparable_worker = 0
+    best_without_pin = throughput.get((comparable_worker, False))
+    best_with_pin = throughput.get((comparable_worker, True))
     pin_memory_speedup_ratio = (
         best_with_pin / best_without_pin
         if best_with_pin is not None and best_without_pin not in (None, 0)
         else None
     )
+
+    if platform.system() == "Windows" and best_num_workers == 0:
+        warnings.append(
+            "num_workers=0 was fastest for this synthetic Windows benchmark; "
+            "real image datasets may benefit from workers when preprocessing or "
+            "disk I/O is significant."
+        )
 
     metrics = [
         metric("best_num_workers", best_num_workers),
@@ -160,6 +168,7 @@ def run_dataloader_benchmark(device_index: int = 0) -> BenchmarkResult:
             "samples/sec",
         ),
         metric("pin_memory_speedup_ratio", pin_memory_speedup_ratio, "x"),
+        metric("pin_memory_comparison_num_workers", comparable_worker),
         metric("batch_size", batch_size),
         metric("batches_measured", max_batches),
     ]
