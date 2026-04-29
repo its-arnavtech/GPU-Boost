@@ -188,6 +188,41 @@ def test_missing_benchmark_metrics_do_not_crash() -> None:
     ]
 
 
+def test_specific_recommendation_suppresses_generic_warning() -> None:
+    suite = _make_suite(
+        [
+            _make_result(
+                "Mixed Precision",
+                metrics=[BenchmarkMetric(name="amp_speedup_ratio", value=0.8)],
+                warnings=["AMP was slower than FP32."],
+            ),
+        ],
+    )
+
+    result = generate_advisor_result(suite)
+    recommendation_ids = {recommendation.id for recommendation in result.recommendations}
+
+    assert "mixed_precision_do_not_enable_blindly" in recommendation_ids
+    assert "warning_mixed_precision" not in recommendation_ids
+
+
+def test_generic_warning_remains_when_not_covered_by_specific_rule() -> None:
+    suite = _make_suite(
+        [
+            _make_result(
+                "Custom Benchmark",
+                metrics=[],
+                warnings=["Custom benchmark warning."],
+            ),
+        ],
+    )
+
+    result = generate_advisor_result(suite)
+    recommendation_ids = {recommendation.id for recommendation in result.recommendations}
+
+    assert "warning_custom_benchmark" in recommendation_ids
+
+
 def _make_suite(results: list[BenchmarkResult]) -> BenchmarkSuiteResult:
     return BenchmarkSuiteResult(
         generated_at="2026-01-01T00:00:00+00:00",

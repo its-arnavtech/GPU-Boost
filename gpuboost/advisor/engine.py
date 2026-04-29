@@ -32,8 +32,8 @@ _ADVISOR_RULES: tuple[RuleFunction, ...] = (
     tensor_core_rule,
     batch_size_rule,
     dataloader_rule,
-    warning_propagation_rule,
 )
+_WARNING_RULE: RuleFunction = warning_propagation_rule
 
 
 def generate_advisor_result(suite: BenchmarkSuiteResult) -> AdvisorResult:
@@ -48,6 +48,18 @@ def generate_advisor_result(suite: BenchmarkSuiteResult) -> AdvisorResult:
         except Exception as error:  # noqa: BLE001 - advisor must isolate rule failures.
             warnings.append(f"Advisor rule failed: {rule.__name__}: {error}")
 
+    try:
+        warning_recommendations = _WARNING_RULE(suite)
+    except Exception as error:  # noqa: BLE001 - advisor must isolate rule failures.
+        warnings.append(f"Advisor rule failed: {_WARNING_RULE.__name__}: {error}")
+    else:
+        recommendations.extend(
+            _filter_redundant_warning_recommendations(
+                recommendations,
+                warning_recommendations,
+            ),
+        )
+
     deduplicated = _deduplicate_recommendations(recommendations)
     prioritized = sort_and_prioritize(deduplicated)
 
@@ -59,6 +71,24 @@ def generate_advisor_result(suite: BenchmarkSuiteResult) -> AdvisorResult:
         recommendations=prioritized,
         warnings=warnings,
     )
+
+
+def _filter_redundant_warning_recommendations(
+    specific_recommendations: list[Recommendation],
+    warning_recommendations: list[Recommendation],
+) -> list[Recommendation]:
+    covered_warnings = {
+        warning
+        for recommendation in specific_recommendations
+        if recommendation.category != "warning"
+        for warning in recommendation.warnings
+    }
+
+    return [
+        recommendation
+        for recommendation in warning_recommendations
+        if not any(warning in covered_warnings for warning in recommendation.warnings)
+    ]
 
 
 def _deduplicate_recommendations(
