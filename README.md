@@ -4,8 +4,8 @@ GPUBoost is an open-source NVIDIA(unaffliated) GPU optimization engine. Phase 1 
 information. Phase 2 adds a synthetic benchmark suite for measuring common GPU
 performance bottlenecks.
 
-GPUBoost does not include optimization recommendations, code patching, reports,
-LLM helpers, dashboard, or daemon features yet.
+GPUBoost includes benchmark-based optimization recommendations. It does not
+include code patching, reports, LLM helpers, dashboard, or daemon features yet.
 
 ## What Phase 1 Does
 
@@ -77,6 +77,13 @@ gpuboost benchmark --json
 gpuboost benchmark --quick --json
 ```
 
+Generate optimization advice from benchmark results:
+
+```bash
+gpuboost benchmark --quick --recommend
+gpuboost benchmark --quick --json --recommend
+```
+
 Benchmark results vary with laptop power mode, thermals, background GPU load,
 drivers, CUDA version, PyTorch build, and whether the system is plugged in.
 CPU-only systems return skipped CUDA benchmark results instead of crashing.
@@ -93,7 +100,6 @@ The test suite does not require an NVIDIA GPU.
 
 - Dashboard code
 - Daemon code
-- Optimization recommendations
 - Reports
 - LLM optimization helpers
 - Code patching
