@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from gpuboost.schemas.recommendation import (
     AdvisorResult,
@@ -92,7 +92,7 @@ def test_create_timestamp_returns_utc_iso_timestamp() -> None:
     timestamp = create_timestamp()
     parsed = datetime.fromisoformat(timestamp)
 
-    assert parsed.tzinfo == UTC
+    assert parsed.tzinfo == timezone.utc
 
 
 def _make_recommendation() -> Recommendation:
