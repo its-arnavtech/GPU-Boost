@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from gpuboost.advisor.scoring import confidence_from_signal, impact_from_speedup
 from gpuboost.advisor.utils import format_speedup, get_metric, get_result_by_name
 from gpuboost.schemas.benchmark_result import BenchmarkResult, BenchmarkSuiteResult
@@ -10,6 +12,8 @@ from gpuboost.schemas.recommendation import Recommendation
 
 _MIXED_PRECISION_RESULT = "Mixed Precision"
 _MATRIX_MULTIPLICATION_RESULT = "Matrix Multiplication"
+_BATCH_SIZE_SWEEP_RESULT = "Batch Size Sweep"
+_DATALOADER_RESULT = "DataLoader"
 
 _MIXED_PRECISION_RELATED_METRICS = [
     "amp_speedup_ratio",
@@ -25,6 +29,15 @@ _TENSOR_CORE_RELATED_METRICS = [
     "best_fp16_tflops",
     "best_fp32_tflops",
 ]
+
+_BATCH_SIZE_RELATED_METRICS = [
+    "best_batch_size",
+    "best_images_per_sec",
+    "batch_1_images_per_sec",
+    "speedup_vs_batch_1",
+    "max_successful_batch_size",
+]
+
 
 _AMP_CODE_SNIPPET = """\
 scaler = torch.amp.GradScaler("cuda")
@@ -75,6 +88,114 @@ def tensor_core_rule(suite: BenchmarkSuiteResult) -> list[Recommendation]:
     if fp16_speedup_ratio < 1.5:
         return [_tensor_core_weak_recommendation(result, fp16_speedup_ratio)]
     return []
+
+
+def batch_size_rule(suite: BenchmarkSuiteResult) -> list[Recommendation]:
+    """Recommend batch-size tuning actions from the batch sweep benchmark."""
+
+    result = get_result_by_name(suite, _BATCH_SIZE_SWEEP_RESULT)
+    if _result_unusable(result):
+        return []
+
+    recommendations: list[Recommendation] = []
+    best_batch_size = get_metric(result, "best_batch_size")
+    speedup_vs_batch_1 = get_metric(result, "speedup_vs_batch_1")
+
+    if (
+        speedup_vs_batch_1 is not None
+        and best_batch_size is not None
+        and speedup_vs_batch_1 >= 1.25
+        and best_batch_size > 1
+    ):
+        recommendations.append(
+            _batch_size_increase_recommendation(
+                result,
+                best_batch_size,
+                speedup_vs_batch_1,
+            ),
+        )
+
+    if best_batch_size is not None and best_batch_size <= 4:
+        recommendations.append(
+            _batch_size_limited_recommendation(
+                result,
+                speedup_vs_batch_1,
+            ),
+        )
+
+    return recommendations
+
+
+def dataloader_rule(suite: BenchmarkSuiteResult) -> list[Recommendation]:
+    """Recommend DataLoader worker and transfer settings."""
+
+    result = get_result_by_name(suite, _DATALOADER_RESULT)
+    if _result_unusable(result):
+        return []
+
+    recommendations: list[Recommendation] = []
+    best_num_workers = get_metric(result, "best_num_workers")
+    best_pin_memory = get_metric(result, "best_pin_memory")
+    pin_memory_speedup_ratio = get_metric(result, "pin_memory_speedup_ratio")
+
+    if best_num_workers is not None and best_num_workers > 0:
+        recommendations.append(
+            _dataloader_workers_recommendation(
+                result,
+                best_num_workers,
+                best_pin_memory,
+            ),
+        )
+
+    if (
+        best_pin_memory is True
+        and pin_memory_speedup_ratio is not None
+        and pin_memory_speedup_ratio >= 1.10
+    ):
+        recommendations.append(
+            _dataloader_pinned_memory_recommendation(
+                result,
+                pin_memory_speedup_ratio,
+            ),
+        )
+
+    if best_num_workers == 0:
+        recommendations.append(_dataloader_workers_limited_recommendation(result))
+
+    return recommendations
+
+
+def warning_propagation_rule(suite: BenchmarkSuiteResult) -> list[Recommendation]:
+    """Promote benchmark warnings into advisor recommendations."""
+
+    recommendations = []
+    for result in suite.results:
+        if result.warnings:
+            recommendations.append(
+                Recommendation(
+                    id=f"warning_{_slugify(result.name)}",
+                    title=f"Review benchmark warning: {result.name}",
+                    category="warning",
+                    priority=0,
+                    impact="medium",
+                    confidence="high",
+                    effort="low",
+                    estimated_speedup=None,
+                    summary=result.warnings[0],
+                    rationale=(
+                        "Benchmark warnings indicate results that may require "
+                        "interpretation before applying recommendations."
+                    ),
+                    suggested_action=(
+                        "Review the warning and validate the recommendation "
+                        "against a real workload."
+                    ),
+                    code_snippet=None,
+                    related_metrics=[],
+                    warnings=list(result.warnings),
+                ),
+            )
+    return recommendations
 
 
 def _result_unusable(result: BenchmarkResult | None) -> bool:
@@ -222,3 +343,152 @@ def _tensor_core_weak_recommendation(
         related_metrics=["fp16_speedup_ratio"],
         warnings=list(result.warnings),
     )
+
+
+def _batch_size_increase_recommendation(
+    result: BenchmarkResult,
+    best_batch_size: int,
+    speedup: float,
+) -> Recommendation:
+    return Recommendation(
+        id="batch_size_increase",
+        title="Use a larger batch size",
+        category="batch_size",
+        priority=0,
+        impact=impact_from_speedup(speedup),
+        confidence=confidence_from_signal(True, result.status == "ok", result.warnings),
+        effort="low",
+        estimated_speedup=speedup,
+        summary=(
+            f"Batch size {best_batch_size} achieved the best throughput in the sweep."
+        ),
+        rationale=(
+            "Larger batches can improve GPU occupancy and reduce per-sample overhead."
+        ),
+        suggested_action=(
+            f"Start with batch_size={best_batch_size}; if training is "
+            "VRAM-limited, use gradient accumulation."
+        ),
+        code_snippet=f"DataLoader(dataset, batch_size={best_batch_size}, ...)",
+        related_metrics=list(_BATCH_SIZE_RELATED_METRICS),
+        warnings=list(result.warnings),
+    )
+
+
+def _batch_size_limited_recommendation(
+    result: BenchmarkResult,
+    speedup: float | None,
+) -> Recommendation:
+    return Recommendation(
+        id="batch_size_scaling_limited",
+        title="Batch scaling appears limited",
+        category="batch_size",
+        priority=0,
+        impact="medium",
+        confidence="medium",
+        effort="medium",
+        estimated_speedup=speedup,
+        summary="The benchmark found a very small optimal batch size.",
+        rationale=(
+            "This can indicate CPU/Python overhead, memory bandwidth limits, "
+            "laptop power limits, or a workload that is not compute-bound."
+        ),
+        suggested_action=(
+            "Validate batch-size tuning on your real model before assuming "
+            "bigger batches help."
+        ),
+        code_snippet=None,
+        related_metrics=["best_batch_size", "speedup_vs_batch_1"],
+        warnings=list(result.warnings),
+    )
+
+
+def _dataloader_workers_recommendation(
+    result: BenchmarkResult,
+    best_num_workers: int,
+    best_pin_memory: bool | None,
+) -> Recommendation:
+    return Recommendation(
+        id="dataloader_tune_workers",
+        title="Tune DataLoader workers",
+        category="dataloader",
+        priority=0,
+        impact="medium",
+        confidence=confidence_from_signal(True, result.status == "ok", result.warnings),
+        effort="low",
+        estimated_speedup=None,
+        summary=(
+            f"num_workers={best_num_workers} was fastest in the synthetic "
+            "DataLoader benchmark."
+        ),
+        rationale=(
+            "DataLoader workers can reduce CPU input pipeline stalls when "
+            "loading or preprocessing data."
+        ),
+        suggested_action=(
+            f"Use num_workers={best_num_workers} as a starting point and "
+            "re-test on your real dataset."
+        ),
+        code_snippet=(
+            f"DataLoader(dataset, num_workers={best_num_workers}, "
+            f"pin_memory={best_pin_memory})"
+        ),
+        related_metrics=["best_num_workers", "best_pin_memory", "best_samples_per_sec"],
+        warnings=list(result.warnings),
+    )
+
+
+def _dataloader_pinned_memory_recommendation(
+    result: BenchmarkResult,
+    speedup: float,
+) -> Recommendation:
+    return Recommendation(
+        id="dataloader_enable_pinned_memory",
+        title="Enable pinned memory for faster GPU transfers",
+        category="dataloader",
+        priority=0,
+        impact=impact_from_speedup(speedup),
+        confidence=confidence_from_signal(True, result.status == "ok", result.warnings),
+        effort="low",
+        estimated_speedup=speedup,
+        summary=f"Pinned memory improved transfer/input throughput by {format_speedup(speedup)}.",
+        rationale=(
+            "Pinned host memory can improve CPU-to-GPU transfer performance "
+            "when using CUDA."
+        ),
+        suggested_action=(
+            "Set pin_memory=True and use non_blocking=True when moving tensors "
+            "to CUDA."
+        ),
+        code_snippet="batch = batch.to('cuda', non_blocking=True)",
+        related_metrics=["best_pin_memory", "pin_memory_speedup_ratio"],
+        warnings=list(result.warnings),
+    )
+
+
+def _dataloader_workers_limited_recommendation(
+    result: BenchmarkResult,
+) -> Recommendation:
+    return Recommendation(
+        id="dataloader_workers_may_not_help",
+        title="DataLoader workers may not help this synthetic workload",
+        category="dataloader",
+        priority=0,
+        impact="low",
+        confidence="medium",
+        effort="low",
+        estimated_speedup=None,
+        summary="num_workers=0 was fastest in this benchmark.",
+        rationale=(
+            "Synthetic datasets and Windows multiprocessing overhead can make "
+            "worker processes slower than single-process loading."
+        ),
+        suggested_action="Re-test with your real dataset before deciding num_workers.",
+        code_snippet=None,
+        related_metrics=["best_num_workers"],
+        warnings=list(result.warnings),
+    )
+
+
+def _slugify(value: str) -> str:
+    return re.sub(r"_+", "_", re.sub(r"[^a-z0-9]+", "_", value.lower())).strip("_")

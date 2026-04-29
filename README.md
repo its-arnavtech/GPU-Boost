@@ -1,7 +1,6 @@
 # GPUBoost
 
-GPUBoost is an open-source NVIDIA GPU optimization engine. Phase 1 provides a
-focused Python CLI that inspects NVIDIA GPU, CUDA, PyTorch, and host system
+GPUBoost is an open-source NVIDIA(unaffliated) GPU optimization engine. Phase 1 provides a focused Python CLI that inspects NVIDIA GPU, CUDA, PyTorch, and host system
 information. Phase 2 adds a synthetic benchmark suite for measuring common GPU
 performance bottlenecks.
 
