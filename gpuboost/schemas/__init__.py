@@ -11,13 +11,21 @@ from gpuboost.schemas.benchmark_result import (
     BenchmarkResult,
     BenchmarkSuiteResult,
 )
+from gpuboost.schemas.recommendation import (
+    AdvisorResult,
+    Recommendation,
+    create_timestamp,
+)
 
 __all__ = [
+    "AdvisorResult",
     "BenchmarkMetric",
     "BenchmarkResult",
     "BenchmarkSuiteResult",
     "GPUBoostProfile",
     "GPUDeviceProfile",
+    "Recommendation",
     "SystemProfile",
     "TorchEnvironmentProfile",
+    "create_timestamp",
 ]
