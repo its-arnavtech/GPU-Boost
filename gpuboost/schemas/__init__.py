@@ -11,6 +11,10 @@ from gpuboost.schemas.benchmark_result import (
     BenchmarkResult,
     BenchmarkSuiteResult,
 )
+from gpuboost.schemas.code_analysis import (
+    CodeAnalysisResult,
+    CodeFinding,
+)
 from gpuboost.schemas.recommendation import (
     AdvisorResult,
     Recommendation,
@@ -22,6 +26,8 @@ __all__ = [
     "BenchmarkMetric",
     "BenchmarkResult",
     "BenchmarkSuiteResult",
+    "CodeAnalysisResult",
+    "CodeFinding",
     "GPUBoostProfile",
     "GPUDeviceProfile",
     "Recommendation",
