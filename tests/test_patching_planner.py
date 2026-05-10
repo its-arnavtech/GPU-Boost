@@ -90,6 +90,150 @@ def test_does_not_patch_multiline_dataloader_missing_kwarg() -> None:
     ]
 
 
+def test_combines_num_workers_zero_and_missing_pin_memory_into_one_edit() -> None:
+    source = "loader = DataLoader(dataset, batch_size=32, num_workers=0)\n"
+    analysis = _analysis(
+        [
+            _finding(
+                "dataloader_num_workers_zero",
+                line=1,
+                severity="info",
+                confidence="medium",
+            ),
+            _finding(
+                "dataloader_missing_pin_memory",
+                line=1,
+                severity="warning",
+                confidence="high",
+            ),
+        ]
+    )
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    assert len(plan.suggestions) == 1
+    suggestion = plan.suggestions[0]
+    edit = suggestion.edits[0]
+    assert suggestion.id == "patch_dataloader_combined_line_1"
+    assert suggestion.title == "Tune DataLoader workers and pinned memory"
+    assert suggestion.category == "dataloader"
+    assert suggestion.severity == "warning"
+    assert suggestion.confidence == "high"
+    assert suggestion.filepath == "train.py"
+    assert suggestion.finding_ids == [
+        "dataloader_num_workers_zero",
+        "dataloader_missing_pin_memory",
+    ]
+    assert "num_workers" in suggestion.summary
+    assert "pin_memory" in suggestion.summary
+    assert "input pipeline stalls" in suggestion.rationale
+    assert "CPU-to-GPU transfers" in suggestion.rationale
+    assert len(suggestion.edits) == 1
+    assert suggestion.warnings == []
+    assert edit.replacement_text == (
+        "loader = DataLoader("
+        "dataset, batch_size=32, num_workers=4, pin_memory=True)\n"
+    )
+
+
+def test_combines_missing_num_workers_and_missing_pin_memory_into_one_edit() -> None:
+    source = "loader = DataLoader(dataset, batch_size=32)\n"
+    analysis = _analysis(
+        [
+            _finding("dataloader_missing_num_workers", line=1),
+            _finding("dataloader_missing_pin_memory", line=1),
+        ]
+    )
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    assert len(plan.suggestions) == 1
+    assert plan.suggestions[0].edits[0].replacement_text == (
+        "loader = DataLoader("
+        "dataset, batch_size=32, num_workers=4, pin_memory=True)\n"
+    )
+
+
+def test_combines_num_workers_zero_and_pin_memory_false_into_one_edit() -> None:
+    source = (
+        "loader = DataLoader("
+        "dataset, batch_size=32, num_workers=0, pin_memory=False)\n"
+    )
+    analysis = _analysis(
+        [
+            _finding("dataloader_num_workers_zero", line=1),
+            _finding("dataloader_pin_memory_false", line=1),
+        ]
+    )
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    assert len(plan.suggestions) == 1
+    assert plan.suggestions[0].edits[0].replacement_text == (
+        "loader = DataLoader("
+        "dataset, batch_size=32, num_workers=4, pin_memory=True)\n"
+    )
+
+
+def test_does_not_create_separate_overlapping_suggestions_when_combined() -> None:
+    source = "loader = DataLoader(dataset, batch_size=32, num_workers=0)\n"
+    analysis = _analysis(
+        [
+            _finding("dataloader_num_workers_zero", line=1),
+            _finding("dataloader_missing_pin_memory", line=1),
+        ]
+    )
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    assert [suggestion.id for suggestion in plan.suggestions] == [
+        "patch_dataloader_combined_line_1"
+    ]
+
+
+def test_generated_combined_patch_plan_diff_has_no_overlap_warning() -> None:
+    source = "loader = DataLoader(dataset, batch_size=32, num_workers=0)\n"
+    analysis = _analysis(
+        [
+            _finding("dataloader_num_workers_zero", line=1),
+            _finding("dataloader_missing_pin_memory", line=1),
+        ]
+    )
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+    diff, warnings = generate_patch_plan_diff(source, plan)
+
+    assert warnings == []
+    assert "-loader = DataLoader(dataset, batch_size=32, num_workers=0)" in diff
+    assert (
+        "+loader = DataLoader("
+        "dataset, batch_size=32, num_workers=4, pin_memory=True)"
+    ) in diff
+
+
+def test_combined_first_line_dataloader_diff_skips_overlapping_cudnn_patch() -> None:
+    source = "loader = DataLoader(dataset, batch_size=32, num_workers=0)\n"
+    analysis = _analysis(
+        [
+            _finding("dataloader_num_workers_zero", line=1),
+            _finding("dataloader_missing_pin_memory", line=1),
+            _finding("cudnn_benchmark_missing", line=None),
+        ]
+    )
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+    diff, warnings = generate_patch_plan_diff(source, plan)
+
+    assert [suggestion.id for suggestion in plan.suggestions] == [
+        "patch_dataloader_combined_line_1"
+    ]
+    assert warnings == []
+    assert (
+        "+loader = DataLoader("
+        "dataset, batch_size=32, num_workers=4, pin_memory=True)"
+    ) in diff
+
+
 def test_creates_cudnn_benchmark_insertion_after_imports() -> None:
     source = (
         "import torch\n"
@@ -206,13 +350,18 @@ def _analysis(findings: list[CodeFinding]) -> CodeAnalysisResult:
     )
 
 
-def _finding(finding_id: str, line: int | None) -> CodeFinding:
+def _finding(
+    finding_id: str,
+    line: int | None,
+    severity: str = "warning",
+    confidence: str = "medium",
+) -> CodeFinding:
     return CodeFinding(
         id=finding_id,
         title="Finding title",
         category=_category_for_finding(finding_id),
-        severity="warning",
-        confidence="medium",
+        severity=severity,
+        confidence=confidence,
         filepath="train.py",
         line=line,
         column=0 if line is not None else None,
