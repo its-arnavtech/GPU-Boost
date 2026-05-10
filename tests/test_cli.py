@@ -118,6 +118,172 @@ def test_cli_benchmark_quick_without_recommend_still_works(
     assert captured.err == ""
 
 
+def test_cli_analyze_json_outputs_valid_json(tmp_path, capsys) -> None:
+    filepath = tmp_path / "train.py"
+    filepath.write_text(
+        "loader = DataLoader(dataset, num_workers=0, pin_memory=False)\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli_main.main(["analyze", str(filepath), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["status"] == "ok"
+    assert data["filepath"] == str(filepath)
+    assert any(
+        finding["id"] == "dataloader_num_workers_zero"
+        for finding in data["findings"]
+    )
+    assert captured.err == ""
+
+
+def test_cli_analyze_json_remains_analysis_only_without_patch(tmp_path, capsys) -> None:
+    filepath = tmp_path / "train.py"
+    filepath.write_text(
+        "loader = DataLoader(dataset, num_workers=0, pin_memory=False)\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli_main.main(["analyze", str(filepath), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["status"] == "ok"
+    assert "analysis" not in data
+    assert "patch_plan" not in data
+    assert "diff" not in data
+    assert "patch_warnings" not in data
+    assert captured.err == ""
+
+
+def test_cli_analyze_json_patch_outputs_patch_payload(tmp_path, capsys) -> None:
+    filepath = tmp_path / "train.py"
+    filepath.write_text(
+        "loader = DataLoader(dataset, num_workers=0)\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli_main.main(["analyze", str(filepath), "--json", "--patch"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert sorted(data) == ["analysis", "diff", "patch_plan", "patch_warnings"]
+    assert data["analysis"]["status"] == "ok"
+    assert data["patch_plan"]["status"] == "ok"
+    assert data["patch_plan"]["suggestions"]
+    assert "--- " in data["diff"]
+    assert "num_workers=4" in data["diff"]
+    assert isinstance(data["patch_warnings"], list)
+    assert captured.err == ""
+
+
+def test_cli_analyze_human_output_includes_title(tmp_path, capsys) -> None:
+    filepath = tmp_path / "eval.py"
+    filepath.write_text(
+        "torch.backends.cudnn.benchmark = True\n"
+        "for batch in loader:\n"
+        "    outputs = model(batch)\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli_main.main(["analyze", str(filepath)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Code Analysis" in captured.out
+    assert "Inference loop may be missing no_grad or inference_mode" in captured.out
+    assert "Status: ok" in captured.out
+    assert captured.err == ""
+
+
+def test_cli_analyze_patch_human_output_includes_patch_section(tmp_path, capsys) -> None:
+    filepath = tmp_path / "train.py"
+    filepath.write_text(
+        "loader = DataLoader(dataset, num_workers=0)\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli_main.main(["analyze", str(filepath), "--patch"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Code Analysis" in captured.out
+    assert "Patch Suggestions:" in captured.out
+    assert "--- " in captured.out
+    assert "num_workers=4" in captured.out
+    assert captured.err == ""
+
+
+def test_cli_analyze_patch_human_output_includes_safety_language(
+    tmp_path,
+    capsys,
+) -> None:
+    filepath = tmp_path / "train.py"
+    filepath.write_text(
+        "loader = DataLoader(dataset, pin_memory=False)\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli_main.main(["analyze", str(filepath), "--patch"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert (
+        "GPUBoost does not apply patches automatically. "
+        "Review the diff before applying changes."
+    ) in captured.out
+    assert captured.err == ""
+
+
+def test_cli_analyze_patch_no_safe_suggestions_prints_message(
+    tmp_path,
+    capsys,
+) -> None:
+    filepath = tmp_path / "eval.py"
+    filepath.write_text(
+        "torch.backends.cudnn.benchmark = True\n"
+        "for batch in loader:\n"
+        "    value = loss.item()\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli_main.main(["analyze", str(filepath), "--patch"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Patch Suggestions:" in captured.out
+    assert "No safe automatic patch suggestions were generated." in captured.out
+    assert "Patch Warnings:" in captured.out
+    assert captured.err == ""
+
+
+def test_cli_analyze_missing_file_exits_nonzero(capsys) -> None:
+    exit_code = cli_main.main(["analyze", "missing-file.py"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "GPUBoost Code Analysis" in captured.out
+    assert "Status: error" in captured.out
+    assert "Error:" in captured.out
+    assert captured.err == ""
+
+
+def test_cli_analyze_patch_missing_file_exits_nonzero(capsys) -> None:
+    exit_code = cli_main.main(["analyze", "missing-file.py", "--patch"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "GPUBoost Code Analysis" in captured.out
+    assert "Status: error" in captured.out
+    assert "Error:" in captured.out
+    assert "Patch Suggestions:" not in captured.out
+    assert captured.err == ""
+
+
 def _fake_run_quick_benchmark(device_index: int = 0) -> BenchmarkSuiteResult:
     return BenchmarkSuiteResult(
         generated_at="2026-01-01T00:00:00+00:00",

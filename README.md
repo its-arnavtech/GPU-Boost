@@ -1,8 +1,6 @@
 # GPUBoost
 
-GPUBoost is an open-source NVIDIA(unaffliated) GPU optimization engine. Phase 1 provides a focused Python CLI that inspects NVIDIA GPU, CUDA, PyTorch, and host system
-information. Phase 2 adds a synthetic benchmark suite for measuring common GPU
-performance bottlenecks.
+GPUBoost is an open-source NVIDIA(unaffliated) GPU optimization engine. Phase 1 provides a focused Python CLI that inspects NVIDIA GPU, CUDA, PyTorch, and host system information. Phase 2 adds a synthetic benchmark suite for measuring common GPU performance bottlenecks.
 
 GPUBoost includes benchmark-based optimization recommendations. It does not
 include code patching, reports, LLM helpers, dashboard, or daemon features yet.
@@ -87,6 +85,32 @@ gpuboost benchmark --quick --json --recommend
 Benchmark results vary with laptop power mode, thermals, background GPU load,
 drivers, CUDA version, PyTorch build, and whether the system is plugged in.
 CPU-only systems return skipped CUDA benchmark results instead of crashing.
+
+## Phase 4 Code Analysis
+
+Phase 4 static analysis inspects Python source without executing user code.
+
+Run analysis on a training or inference script:
+
+```bash
+gpuboost analyze train.py
+gpuboost analyze train.py --json
+```
+
+It currently detects DataLoader configuration issues, GPU synchronization-like
+calls inside loops, missing `torch.no_grad()` or `torch.inference_mode()` for
+inference loops, missing AMP/autocast for training loops, and missing
+`torch.backends.cudnn.benchmark = True`.
+
+Generate review-only unified diffs for safe patch suggestions:
+
+```bash
+gpuboost analyze train.py --patch
+gpuboost analyze train.py --json --patch
+```
+
+Patch suggestions are unified diffs for review. GPUBoost never applies changes
+automatically.
 
 ## Run Tests
 

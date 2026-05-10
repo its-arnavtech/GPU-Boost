@@ -1,0 +1,10 @@
+import torch
+from torch.utils.data import DataLoader
+
+loader = DataLoader(dataset, batch_size=32, num_workers=0)
+
+for batch in loader:
+    loss = model(batch)
+    print(loss.item())
+    loss.backward()
+    optimizer.step()

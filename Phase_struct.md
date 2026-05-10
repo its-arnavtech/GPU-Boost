@@ -1,5 +1,3 @@
-Absolutely. Build it in **phases**, not all at once. The spec is huge, so the smart move is to ship a strong CLI-first MVP, then expand into patching, LLM support, dashboard, daemon, and dataset features. The uploaded spec defines GPUBoost as an open-source NVIDIA GPU optimization engine that inspects hardware/software, benchmarks bottlenecks, and produces actionable fixes/code patches. 
-
 ## Phase 0: Repo + Foundation
 
 Goal: create a clean project skeleton.
