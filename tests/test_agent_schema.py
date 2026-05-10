@@ -96,6 +96,7 @@ def test_agent_run_result_creation() -> None:
     assert result.events == [event]
     assert result.warnings == ["Patch output is review-only."]
     assert result.error is None
+    assert result.artifacts == {}
 
 
 def test_to_dict_nesting_works() -> None:
@@ -116,6 +117,7 @@ def test_to_dict_nesting_works() -> None:
     assert data["events"][0]["data"]["recommendation_count"] == 3
     assert data["warnings"] == []
     assert data["error"] is None
+    assert data["artifacts"] == {}
 
 
 def test_json_serialization_works() -> None:
@@ -134,6 +136,7 @@ def test_json_serialization_works() -> None:
     assert deserialized["goal"]["script_path"] == "train.py"
     assert deserialized["plan"]["actions"][0]["name"] == "generate_recommendations"
     assert deserialized["events"][0]["message"] == "Recommendations generated."
+    assert deserialized["artifacts"] == {}
 
 
 def test_default_list_and_dict_fields_are_isolated_between_instances() -> None:

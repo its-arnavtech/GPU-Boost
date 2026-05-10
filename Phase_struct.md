@@ -289,6 +289,16 @@ Do not auto-edit files yet.
 
 ## Phase 6: Patch Generator
 
+current roadmap:
+Phase 6.1 — Agent CLI command skeleton
+Phase 6.2 — Wire CLI to run_optimize_script_workflow()
+Phase 6.3 — Human-readable report rendering
+Phase 6.4 — JSON output
+Phase 6.5 — Patch diff display
+Phase 6.6 — No-script system optimize mode
+Phase 6.7 — Error handling and exit codes
+Phase 6.8 — README/docs + CLI smoke tests
+
 Goal: generate safe code patches.
 
 Command:

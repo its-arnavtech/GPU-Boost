@@ -91,6 +91,7 @@ class AgentExecutor:
             events=state.events,
             warnings=state.warnings,
             error=error,
+            artifacts={"diff": state.diff},
         )
 
 

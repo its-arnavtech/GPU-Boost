@@ -94,6 +94,7 @@ class AgentRunResult:
     events: list[AgentEvent] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     error: str | None = None
+    artifacts: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the run result as JSON-serializable data."""
