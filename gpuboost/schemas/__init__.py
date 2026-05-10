@@ -15,6 +15,11 @@ from gpuboost.schemas.code_analysis import (
     CodeAnalysisResult,
     CodeFinding,
 )
+from gpuboost.schemas.patch_plan import (
+    PatchEdit,
+    PatchPlan,
+    PatchSuggestion,
+)
 from gpuboost.schemas.recommendation import (
     AdvisorResult,
     Recommendation,
@@ -30,6 +35,9 @@ __all__ = [
     "CodeFinding",
     "GPUBoostProfile",
     "GPUDeviceProfile",
+    "PatchEdit",
+    "PatchPlan",
+    "PatchSuggestion",
     "Recommendation",
     "SystemProfile",
     "TorchEnvironmentProfile",
