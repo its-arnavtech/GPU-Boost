@@ -54,6 +54,16 @@ evidence-based optimization tool for CUDA and PyTorch development.
 - Generates safe review-only unified diffs for selected low-risk changes
 - Does not apply patches automatically
 
+### Phase 5: Agent Core
+
+- Deterministic, non-LLM agent core is implemented
+- Supports goal schemas, run state, action registry, deterministic planning,
+  executor, real handlers, and report builder
+- Not yet exposed as a CLI command
+- Phase 6 will add `gpuboost agent optimize train.py`
+- Agent core does not apply patches automatically
+- Current behavior remains safe and review-only
+
 ## Install For Development
 
 ```bash
@@ -165,15 +175,18 @@ gpuboost agent ask "Why is AMP slower on my machine?"
 ## Agentic AI Roadmap
 
 Phases 5-10 pivot GPUBoost from a benchmark and analysis CLI into an agentic AI
-production system. These phases are planned and not yet implemented.
+production system. Phase 5 is implemented as a deterministic core; later phases
+will add CLI access, trial workspaces, validation, history, and optional LLM
+explanations.
 
 ### Phase 5: Agent Core - State, Actions, Planner, Executor
 
-- Build a deterministic agent backbone
-- Add `AgentState`, `AgentGoal`, `AgentAction`, `AgentPlan`,
+- Built a deterministic agent backbone
+- Added `AgentState`, `AgentGoal`, `AgentAction`, `AgentPlan`,
   `AgentRunResult`, and `AgentEvent`
-- Convert optimization goals into execution plans
-- No LLM and no file modification yet
+- Converts optimization goals into execution plans
+- Executes plans through deterministic handlers and builds agent reports
+- No LLM and no file modification
 
 ### Phase 6: Agent CLI - One-Shot Optimize Workflow
 

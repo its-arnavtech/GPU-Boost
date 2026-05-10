@@ -1,5 +1,13 @@
 """Data schemas for GPUBoost output."""
 
+from gpuboost.schemas.agent import (
+    AgentAction,
+    AgentEvent,
+    AgentGoal,
+    AgentPlan,
+    AgentRunResult,
+    create_timestamp,
+)
 from gpuboost.schemas.gpu_profile import (
     GPUBoostProfile,
     GPUDeviceProfile,
@@ -23,10 +31,14 @@ from gpuboost.schemas.patch_plan import (
 from gpuboost.schemas.recommendation import (
     AdvisorResult,
     Recommendation,
-    create_timestamp,
 )
 
 __all__ = [
+    "AgentAction",
+    "AgentEvent",
+    "AgentGoal",
+    "AgentPlan",
+    "AgentRunResult",
     "AdvisorResult",
     "BenchmarkMetric",
     "BenchmarkResult",
