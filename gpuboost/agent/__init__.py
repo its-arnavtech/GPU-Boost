@@ -43,6 +43,10 @@ from gpuboost.agent.report import (
     format_event_line,
 )
 from gpuboost.agent.state import AgentState
+from gpuboost.agent.workflow import (
+    create_optimize_script_goal,
+    run_optimize_script_workflow,
+)
 
 __all__ = [
     "ACTION_REGISTRY",
@@ -62,6 +66,7 @@ __all__ = [
     "build_agent_report",
     "count_actions_by_status",
     "create_agent_action",
+    "create_optimize_script_goal",
     "create_optimize_script_plan",
     "default_handlers",
     "failed_action_messages",
@@ -78,4 +83,5 @@ __all__ = [
     "is_known_action",
     "list_action_definitions",
     "plan_for_goal",
+    "run_optimize_script_workflow",
 ]
