@@ -289,7 +289,7 @@ Do not auto-edit files yet.
 
 ## Phase 6: Patch Generator
 
-current roadmap:
+roadmap:
 Phase 6.1 — Agent CLI command skeleton
 Phase 6.2 — Wire CLI to run_optimize_script_workflow()
 Phase 6.3 — Human-readable report rendering
@@ -325,6 +325,18 @@ Patch examples:
 This feature is very impressive for a research/demo project.
 
 ## Phase 7: Crowd-Sourced Benchmark Dataset
+
+current roadmap:
+Phase 7.1  — Trial schemas
+Phase 7.2  — Temporary workspace manager
+Phase 7.3  — Patch application to trial copy
+Phase 7.4  — Syntax check runner
+Phase 7.5  — Optional test command runner
+Phase 7.6  — Trial engine
+Phase 7.7  — Agent handler integration
+Phase 7.8  — CLI --trial
+Phase 7.9  — CLI --test
+Phase 7.10 — Docs + final safety tests
 
 Goal: collect anonymous benchmark results.
 

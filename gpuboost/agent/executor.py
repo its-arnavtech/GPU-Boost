@@ -91,7 +91,10 @@ class AgentExecutor:
             events=state.events,
             warnings=state.warnings,
             error=error,
-            artifacts={"diff": state.diff},
+            artifacts={
+                "diff": state.diff,
+                "trial": state.metadata.get("trial_result"),
+            },
         )
 
 

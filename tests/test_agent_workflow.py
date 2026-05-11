@@ -10,6 +10,7 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
 )
@@ -32,7 +33,11 @@ def test_create_optimize_script_goal_with_script_path() -> None:
     assert goal.kind == "optimize_script"
     assert goal.description == "Optimize train.py for NVIDIA GPU performance"
     assert goal.script_path == "train.py"
-    assert goal.options == {"quick": False}
+    assert goal.options == {
+        "quick": False,
+        "trial": False,
+        "test_command": None,
+    }
 
 
 def test_create_optimize_script_goal_without_script_path() -> None:
@@ -43,7 +48,11 @@ def test_create_optimize_script_goal_without_script_path() -> None:
         "Analyze this system for NVIDIA GPU optimization opportunities"
     )
     assert goal.script_path is None
-    assert goal.options == {"quick": True}
+    assert goal.options == {
+        "quick": True,
+        "trial": False,
+        "test_command": None,
+    }
 
 
 def test_goal_includes_safety_constraints() -> None:
@@ -55,7 +64,8 @@ def test_goal_includes_safety_constraints() -> None:
     ]
 
 
-def test_run_optimize_script_workflow_with_fake_handlers_returns_result_and_report() -> None:
+def test_run_optimize_script_workflow_with_fake_handlers_returns_result_and_report(
+) -> None:
     result, report = run_optimize_script_workflow(
         script_path="train.py",
         handlers=_fake_handlers(),
@@ -73,7 +83,24 @@ def test_run_optimize_script_workflow_defaults_quick_true() -> None:
         handlers=_fake_handlers(),
     )
 
-    assert result.goal.options == {"quick": True}
+    assert result.goal.options == {
+        "quick": True,
+        "trial": False,
+        "test_command": None,
+    }
+
+
+def test_workflow_passes_trial_and_test_command_options() -> None:
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(),
+        trial=True,
+        test_command="python -c pass",
+    )
+
+    assert result.goal.options["trial"] is True
+    assert result.goal.options["test_command"] == "python -c pass"
+    assert RUN_TRIAL_WORKSPACE in [action.name for action in result.plan.actions]
 
 
 def test_workflow_with_script_path_includes_code_patch_diff_actions() -> None:
@@ -204,6 +231,7 @@ def _fake_handlers(
             "code_finding_count": 1 if state.code_analysis else 0,
             "patch_suggestion_count": 1 if state.patch_plan else 0,
             "has_diff": bool(state.diff),
+            "has_trial_result": "trial_result" in state.metadata,
             "warning_count": len(state.warnings),
             "failed_action_count": len(state.failed_actions),
         }

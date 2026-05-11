@@ -12,6 +12,7 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
 )
@@ -22,6 +23,7 @@ from gpuboost.inspector import profile as profile_module
 from gpuboost.patching import diff as patch_diff
 from gpuboost.patching import planner as patch_planner
 from gpuboost.schemas.agent import AgentAction
+from gpuboost.trial import engine as trial_engine
 
 if TYPE_CHECKING:
     from gpuboost.agent.executor import ActionHandler
@@ -146,6 +148,39 @@ def handle_generate_diff(state: AgentState, action: AgentAction) -> None:
     )
 
 
+def handle_run_trial_workspace(state: AgentState, action: AgentAction) -> None:
+    """Run a safe patch trial against a copied workspace file."""
+
+    script_path = _get_script_path(state, action)
+    if not script_path:
+        raise ValueError("script_path is required for trial workspace validation.")
+
+    patch_plan = state.metadata.get("_patch_plan")
+    if patch_plan is None:
+        raise ValueError("Patch plan is required before running a trial workspace.")
+
+    test_command = action.inputs.get("test_command")
+    if test_command is None:
+        test_command = state.goal.options.get("test_command")
+    trial_result = trial_engine.run_patch_trial(
+        original_file=script_path,
+        patch_plan=patch_plan,
+        test_command=str(test_command) if test_command is not None else None,
+    )
+    state.metadata["_trial_result"] = trial_result
+    state.metadata["trial_result"] = trial_result.to_dict()
+    _add_warnings(state, trial_result.warnings, action.id)
+    state.add_event(
+        level="info",
+        message=f"Trial workspace completed with status: {trial_result.status}.",
+        action_id=action.id,
+        data={"status": trial_result.status},
+    )
+
+    if trial_result.status in {"failed", "error"}:
+        raise ValueError(trial_result.error or "Trial workspace validation failed.")
+
+
 def handle_summarize_results(state: AgentState, action: AgentAction) -> None:
     """Store a lightweight summary of collected agent artifacts."""
 
@@ -162,6 +197,7 @@ def handle_summarize_results(state: AgentState, action: AgentAction) -> None:
             "suggestions",
         ),
         "has_diff": bool(state.diff),
+        "has_trial_result": "trial_result" in state.metadata,
         "warning_count": len(state.warnings),
         "failed_action_count": len(state.failed_actions),
     }
@@ -182,6 +218,7 @@ def default_handlers() -> dict[str, "ActionHandler"]:
         ANALYZE_CODE: handle_analyze_code,
         CREATE_PATCH_PLAN: handle_create_patch_plan,
         GENERATE_DIFF: handle_generate_diff,
+        RUN_TRIAL_WORKSPACE: handle_run_trial_workspace,
         SUMMARIZE_RESULTS: handle_summarize_results,
     }
 

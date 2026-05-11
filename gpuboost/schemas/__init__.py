@@ -32,6 +32,11 @@ from gpuboost.schemas.recommendation import (
     AdvisorResult,
     Recommendation,
 )
+from gpuboost.schemas.trial import (
+    TrialResult,
+    TrialStep,
+    TrialWorkspace,
+)
 
 __all__ = [
     "AgentAction",
@@ -53,5 +58,8 @@ __all__ = [
     "Recommendation",
     "SystemProfile",
     "TorchEnvironmentProfile",
+    "TrialResult",
+    "TrialStep",
+    "TrialWorkspace",
     "create_timestamp",
 ]

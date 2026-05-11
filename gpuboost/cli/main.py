@@ -115,6 +115,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Accept quick-mode placeholder for future workflow integration.",
     )
+    agent_optimize_parser.add_argument(
+        "--trial",
+        action="store_true",
+        help="Validate generated patch suggestions in a temporary workspace.",
+    )
+    agent_optimize_parser.add_argument(
+        "--test",
+        dest="test_command",
+        help="Explicit test command to run inside the trial workspace.",
+    )
 
     return parser
 
@@ -224,11 +234,32 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent":
         if args.agent_command == "optimize":
+            validation_error = _validate_agent_optimize_args(args)
+            if validation_error is not None:
+                if args.json:
+                    print(
+                        json.dumps(
+                            build_agent_optimize_error_json_payload(
+                                validation_error,
+                            ),
+                            indent=2,
+                            sort_keys=True,
+                        )
+                    )
+                else:
+                    print(render_agent_unexpected_error_human(validation_error))
+                return 1
+
             try:
-                result, report = run_optimize_script_workflow(
-                    script_path=args.script_path,
-                    quick=args.quick,
-                )
+                workflow_kwargs = {
+                    "script_path": args.script_path,
+                    "quick": args.quick,
+                }
+                if args.trial:
+                    workflow_kwargs["trial"] = True
+                if args.test_command is not None:
+                    workflow_kwargs["test_command"] = args.test_command
+                result, report = run_optimize_script_workflow(**workflow_kwargs)
             except Exception as error:  # noqa: BLE001 - CLI boundary
                 error_message = _format_exception_message(error)
                 if args.json:
@@ -256,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
                     report=report,
                     result=result,
                     script_path=args.script_path,
+                    trial_requested=args.trial,
                 )
                 try:
                     from rich.console import Console
@@ -384,6 +416,7 @@ def render_agent_report_human(
     result: AgentRunResult,
     script_path: str | None,
     command: str = "optimize",
+    trial_requested: bool = False,
 ) -> str:
     """Render a concise human-readable agent report."""
 
@@ -401,13 +434,17 @@ def render_agent_report_human(
     ]
 
     if result.plan.actions:
-        lines.extend(f"- {action.id}: {action.status}" for action in result.plan.actions)
+        lines.extend(
+            f"- {action.id}: {action.status}"
+            for action in result.plan.actions
+        )
     else:
         lines.append("- none")
 
     event_items: list[str] = []
     warning_items = list(report.warnings)
     diff = _get_agent_diff_artifact(result)
+    trial = _get_agent_trial_artifact(result)
     error_items = [
         error
         for error in [result.error, report.error]
@@ -461,6 +498,9 @@ def render_agent_report_human(
             ]
         )
 
+    if trial_requested or trial is not None:
+        lines.extend(["", _format_trial_output(trial)])
+
     lines.extend(
         [
             "",
@@ -486,6 +526,7 @@ def build_agent_optimize_json_payload(
         "report": report.to_dict(),
         "artifacts": {
             "diff": _get_agent_diff_artifact(result),
+            "trial": _get_agent_trial_artifact(result),
         },
     }
 
@@ -500,9 +541,20 @@ def build_agent_optimize_error_json_payload(error: str) -> dict[str, object]:
         "report": None,
         "artifacts": {
             "diff": None,
+            "trial": None,
         },
         "error": error,
     }
+
+
+def _validate_agent_optimize_args(args: argparse.Namespace) -> str | None:
+    if args.trial and not args.script_path:
+        return "--trial requires a script_path."
+    if args.test_command is not None and not args.trial:
+        return "--test requires --trial."
+    if args.test_command is not None and not args.script_path:
+        return "--test requires a script_path."
+    return None
 
 
 def render_agent_unexpected_error_human(error: str) -> str:
@@ -540,6 +592,55 @@ def _get_agent_diff_artifact(result: AgentRunResult) -> str | None:
     if isinstance(diff, str) and diff:
         return diff
     return None
+
+
+def _get_agent_trial_artifact(result: AgentRunResult) -> dict[str, object] | None:
+    trial = result.artifacts.get("trial")
+    if isinstance(trial, dict):
+        return trial
+    return None
+
+
+def _format_trial_output(trial: dict[str, object] | None) -> str:
+    lines = [
+        "Trial Workspace:",
+        "Trial mode applies patches only to a temporary copy. "
+        "The original file is not modified.",
+    ]
+    if trial is None:
+        lines.extend(
+            [
+                "- Status: none",
+                "- Patch applied: no",
+                "- Syntax check: none",
+                "- Test command: none",
+                "- Test status: none",
+                "- Original file unchanged: yes",
+            ]
+        )
+        return "\n".join(lines)
+
+    test_command = trial.get("test_command")
+    test_status = trial.get("test_status")
+    lines.extend(
+        [
+            f"- Status: {trial.get('status')}",
+            f"- Patch applied: {_format_yes_no(bool(trial.get('patch_applied')))}",
+            f"- Syntax check: {trial.get('syntax_check_status') or 'none'}",
+            f"- Test command: {test_command or 'none'}",
+            f"- Test status: {test_status or 'none'}",
+            "- Original file unchanged: "
+            f"{_format_yes_no(bool(trial.get('original_file_unchanged')))}",
+        ]
+    )
+    error = trial.get("error")
+    if error:
+        lines.append(f"- Error: {error}")
+    return "\n".join(lines)
+
+
+def _format_yes_no(value: bool) -> str:
+    return "yes" if value else "no"
 
 
 def _deduplicate_lines(items: list[str]) -> list[str]:

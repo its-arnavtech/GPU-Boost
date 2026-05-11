@@ -12,6 +12,8 @@ def create_optimize_script_goal(
     script_path: str | None = None,
     quick: bool = True,
     goal_id: str = "optimize_script",
+    trial: bool = False,
+    test_command: str | None = None,
 ) -> AgentGoal:
     """Create a deterministic optimize_script goal."""
 
@@ -20,12 +22,18 @@ def create_optimize_script_goal(
     else:
         description = "Analyze this system for NVIDIA GPU optimization opportunities"
 
+    options = {
+        "quick": quick,
+        "trial": trial,
+        "test_command": test_command,
+    }
+
     return AgentGoal(
         id=goal_id,
         kind="optimize_script",
         description=description,
         script_path=script_path,
-        options={"quick": quick},
+        options=options,
         constraints=[
             "do_not_modify_original_file",
             "review_patches_only",
@@ -37,12 +45,16 @@ def run_optimize_script_workflow(
     script_path: str | None = None,
     handlers: dict[str, ActionHandler] | None = None,
     quick: bool = True,
+    trial: bool = False,
+    test_command: str | None = None,
 ) -> tuple[AgentRunResult, AgentReport]:
     """Run the deterministic optimize_script workflow without CLI integration."""
 
     goal = create_optimize_script_goal(
         script_path=script_path,
         quick=quick,
+        trial=trial,
+        test_command=test_command,
     )
     plan = plan_for_goal(goal)
     executor = AgentExecutor(

@@ -13,6 +13,7 @@ GENERATE_RECOMMENDATIONS = "generate_recommendations"
 ANALYZE_CODE = "analyze_code"
 CREATE_PATCH_PLAN = "create_patch_plan"
 GENERATE_DIFF = "generate_diff"
+RUN_TRIAL_WORKSPACE = "run_trial_workspace"
 SUMMARIZE_RESULTS = "summarize_results"
 
 ACTION_ORDER = (
@@ -22,6 +23,7 @@ ACTION_ORDER = (
     ANALYZE_CODE,
     CREATE_PATCH_PLAN,
     GENERATE_DIFF,
+    RUN_TRIAL_WORKSPACE,
     SUMMARIZE_RESULTS,
 )
 
@@ -84,6 +86,16 @@ ACTION_REGISTRY: dict[str, ActionDefinition] = {
         description="Generate a reviewable diff from a patch plan.",
         required=False,
         produces=["diff"],
+        requires=["patch_plan"],
+        safe_by_default=True,
+    ),
+    RUN_TRIAL_WORKSPACE: ActionDefinition(
+        name=RUN_TRIAL_WORKSPACE,
+        description=(
+            "Validate generated patch suggestions in a temporary trial workspace."
+        ),
+        required=False,
+        produces=["trial_result"],
         requires=["patch_plan"],
         safe_by_default=True,
     ),
