@@ -67,6 +67,15 @@ def test_run_optimize_script_workflow_with_fake_handlers_returns_result_and_repo
     assert result.events
 
 
+def test_run_optimize_script_workflow_defaults_quick_true() -> None:
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(),
+    )
+
+    assert result.goal.options == {"quick": True}
+
+
 def test_workflow_with_script_path_includes_code_patch_diff_actions() -> None:
     result, _report = run_optimize_script_workflow(
         script_path="train.py",

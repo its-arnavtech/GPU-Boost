@@ -9,6 +9,8 @@ import argparse
 import json
 from pathlib import Path
 
+from gpuboost.agent.report import AgentReport
+from gpuboost.agent.workflow import run_optimize_script_workflow
 from gpuboost.advisor.engine import generate_advisor_result
 from gpuboost.advisor.utils import format_speedup
 from gpuboost.benchmarks.runner import run_full_benchmark, run_quick_benchmark
@@ -16,6 +18,7 @@ from gpuboost.code_analysis.runner import analyze_python_file
 from gpuboost.inspector.profile import collect_profile
 from gpuboost.patching.diff import generate_patch_plan_diff
 from gpuboost.patching.planner import create_patch_plan_from_analysis
+from gpuboost.schemas.agent import AgentRunResult
 from gpuboost.schemas.code_analysis import CodeAnalysisResult, CodeFinding
 from gpuboost.schemas.recommendation import AdvisorResult
 from gpuboost.utils.formatting import format_benchmark_suite, format_profile
@@ -83,6 +86,34 @@ def build_parser() -> argparse.ArgumentParser:
         "--patch",
         action="store_true",
         help="Print review-only unified patch suggestions.",
+    )
+
+    agent_parser = subparsers.add_parser(
+        "agent",
+        help="Run GPUBoost agent workflows.",
+        description="Run GPUBoost agent workflows.",
+    )
+    agent_subparsers = agent_parser.add_subparsers(dest="agent_command")
+
+    agent_optimize_parser = agent_subparsers.add_parser(
+        "optimize",
+        help="Prepare an agent optimization workflow.",
+    )
+    agent_optimize_parser.add_argument(
+        "script_path",
+        nargs="?",
+        help="Optional training script path.",
+    )
+    agent_optimize_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+    agent_optimize_parser.add_argument(
+        "--quick",
+        action="store_true",
+        default=True,
+        help="Accept quick-mode placeholder for future workflow integration.",
     )
 
     return parser
@@ -189,6 +220,52 @@ def main(argv: list[str] | None = None) -> int:
                 output = f"{output}\n\n{_format_patch_output(patch_output)}"
             print(output)
 
+        return 0
+
+    if args.command == "agent":
+        if args.agent_command == "optimize":
+            try:
+                result, report = run_optimize_script_workflow(
+                    script_path=args.script_path,
+                    quick=args.quick,
+                )
+            except Exception as error:  # noqa: BLE001 - CLI boundary
+                error_message = _format_exception_message(error)
+                if args.json:
+                    print(
+                        json.dumps(
+                            build_agent_optimize_error_json_payload(error_message),
+                            indent=2,
+                            sort_keys=True,
+                        )
+                    )
+                else:
+                    print(render_agent_unexpected_error_human(error_message))
+                return 1
+
+            if args.json:
+                print(
+                    json.dumps(
+                        build_agent_optimize_json_payload(result, report),
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
+            else:
+                output = render_agent_report_human(
+                    report=report,
+                    result=result,
+                    script_path=args.script_path,
+                )
+                try:
+                    from rich.console import Console
+                except Exception:
+                    print(output)
+                else:
+                    Console().print(output, markup=False, soft_wrap=True)
+            return agent_status_to_exit_code(result.status)
+
+        print("GPUBoost Agent\nAvailable commands: optimize")
         return 0
 
     parser.print_help()
@@ -300,6 +377,180 @@ def _format_patch_output(patch_output: dict[str, object]) -> str:
         lines.extend(f"- {warning}" for warning in patch_warnings)
 
     return "\n".join(lines)
+
+
+def render_agent_report_human(
+    report: AgentReport,
+    result: AgentRunResult,
+    script_path: str | None,
+    command: str = "optimize",
+) -> str:
+    """Render a concise human-readable agent report."""
+
+    script_display = script_path if script_path is not None else "none"
+    lines = [
+        "GPUBoost Agent",
+        f"Command: {command}",
+        f"Status: {report.status}",
+        f"Script: {script_display}",
+        "",
+        "Summary:",
+        report.summary,
+        "",
+        "Plan:",
+    ]
+
+    if result.plan.actions:
+        lines.extend(f"- {action.id}: {action.status}" for action in result.plan.actions)
+    else:
+        lines.append("- none")
+
+    event_items: list[str] = []
+    warning_items = list(report.warnings)
+    diff = _get_agent_diff_artifact(result)
+    error_items = [
+        error
+        for error in [result.error, report.error]
+        if error
+    ]
+
+    report_lines: list[str] = []
+    for section in report.sections:
+        title_key = section.title.lower()
+        if title_key == "events":
+            event_items.extend(section.items[-5:])
+            continue
+        if title_key == "warnings":
+            warning_items.extend(section.items)
+            continue
+        if title_key == "errors":
+            error_items.extend(section.items)
+            continue
+
+        report_lines.extend([section.title])
+        report_lines.extend(f"- {item}" for item in section.items)
+        report_lines.append("")
+
+    if report_lines:
+        lines.extend(["", "Report:"])
+        lines.extend(report_lines)
+        if lines[-1] == "":
+            lines.pop()
+
+    if warning_items:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in _deduplicate_lines(warning_items))
+
+    if error_items:
+        lines.extend(["", "Error:"])
+        lines.extend(f"- {error}" for error in _deduplicate_lines(error_items))
+
+    if event_items:
+        lines.extend(["", "Recent Events:"])
+        lines.extend(f"- {event}" for event in event_items[-5:])
+
+    if diff:
+        lines.extend(
+            [
+                "",
+                "Reviewable Patch Diff:",
+                "GPUBoost does not apply patches automatically. "
+                "Review the diff before applying changes.",
+                "",
+                diff,
+            ]
+        )
+
+    lines.extend(
+        [
+            "",
+            "Safety:",
+            "GPUBoost does not apply patches automatically. "
+            "Review generated diffs before applying changes.",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
+def build_agent_optimize_json_payload(
+    result: AgentRunResult,
+    report: AgentReport,
+) -> dict[str, object]:
+    """Build the stable JSON payload for agent optimize."""
+
+    return {
+        "schema_version": "agent.optimize.v1",
+        "command": "agent optimize",
+        "result": result.to_dict(),
+        "report": report.to_dict(),
+        "artifacts": {
+            "diff": _get_agent_diff_artifact(result),
+        },
+    }
+
+
+def build_agent_optimize_error_json_payload(error: str) -> dict[str, object]:
+    """Build the stable JSON payload for unexpected agent optimize errors."""
+
+    return {
+        "schema_version": "agent.optimize.v1",
+        "command": "agent optimize",
+        "result": None,
+        "report": None,
+        "artifacts": {
+            "diff": None,
+        },
+        "error": error,
+    }
+
+
+def render_agent_unexpected_error_human(error: str) -> str:
+    """Render a clean human-readable unexpected agent error."""
+
+    return "\n".join(
+        [
+            "GPUBoost Agent",
+            "Command: optimize",
+            "Status: error",
+            "",
+            "Error:",
+            error,
+        ]
+    )
+
+
+def agent_status_to_exit_code(status: str) -> int:
+    """Return the CLI exit code for an agent result status."""
+
+    if status in {"ok", "partial"}:
+        return 0
+    return 1
+
+
+def _format_exception_message(error: Exception) -> str:
+    message = str(error)
+    if message:
+        return message
+    return error.__class__.__name__
+
+
+def _get_agent_diff_artifact(result: AgentRunResult) -> str | None:
+    diff = result.artifacts.get("diff")
+    if isinstance(diff, str) and diff:
+        return diff
+    return None
+
+
+def _deduplicate_lines(items: list[str]) -> list[str]:
+    unique_items = []
+    seen = set()
+    for item in items:
+        if item in seen:
+            continue
+        unique_items.append(item)
+        seen.add(item)
+    return unique_items
 
 
 def _append_code_analysis_warnings(lines: list[str], warnings: list[str]) -> None:
