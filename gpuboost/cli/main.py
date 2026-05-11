@@ -16,12 +16,20 @@ from gpuboost.advisor.utils import format_speedup
 from gpuboost.benchmarks.runner import run_full_benchmark, run_quick_benchmark
 from gpuboost.code_analysis.runner import analyze_python_file
 from gpuboost.comparison.engine import compare_benchmarks
+from gpuboost.history.compare import compare_history_runs
+from gpuboost.history.store import list_history_runs, load_history_run
 from gpuboost.inspector.profile import collect_profile
 from gpuboost.patching.diff import generate_patch_plan_diff
 from gpuboost.patching.planner import create_patch_plan_from_analysis
 from gpuboost.schemas.agent import AgentRunResult
 from gpuboost.schemas.code_analysis import CodeAnalysisResult, CodeFinding
 from gpuboost.schemas.comparison import BenchmarkMetricDelta, ComparisonResult
+from gpuboost.schemas.history import (
+    HistoryCompareResult,
+    HistoryRunRecord,
+    HistorySummary,
+    HistoryValue,
+)
 from gpuboost.schemas.recommendation import AdvisorResult
 from gpuboost.utils.formatting import format_benchmark_suite, format_profile
 
@@ -144,6 +152,66 @@ def build_parser() -> argparse.ArgumentParser:
         "--test",
         dest="test_command",
         help="Explicit test command to run inside the trial workspace.",
+    )
+    agent_optimize_parser.add_argument(
+        "--save-history",
+        action="store_true",
+        help="Save a safe local history record for this run.",
+    )
+    agent_optimize_parser.add_argument(
+        "--history-db-path",
+        help="Optional history database path for development and testing.",
+    )
+
+    history_parser = subparsers.add_parser(
+        "history",
+        help="Inspect local GPUBoost run history.",
+    )
+    history_subparsers = history_parser.add_subparsers(dest="history_command")
+
+    history_list_parser = history_subparsers.add_parser(
+        "list",
+        help="List local history runs.",
+    )
+    history_list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+    history_list_parser.add_argument(
+        "--db-path",
+        help="Optional history database path for development and testing.",
+    )
+
+    history_show_parser = history_subparsers.add_parser(
+        "show",
+        help="Show one local history run.",
+    )
+    history_show_parser.add_argument("run_id", help="History run ID to show.")
+    history_show_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+    history_show_parser.add_argument(
+        "--db-path",
+        help="Optional history database path for development and testing.",
+    )
+
+    history_compare_parser = history_subparsers.add_parser(
+        "compare",
+        help="Compare two local history runs.",
+    )
+    history_compare_parser.add_argument("left_run_id", help="Left history run ID.")
+    history_compare_parser.add_argument("right_run_id", help="Right history run ID.")
+    history_compare_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+    history_compare_parser.add_argument(
+        "--db-path",
+        help="Optional history database path for development and testing.",
     )
 
     return parser
@@ -315,6 +383,9 @@ def main(argv: list[str] | None = None) -> int:
                     workflow_kwargs["trial"] = True
                 if args.test_command is not None:
                     workflow_kwargs["test_command"] = args.test_command
+                if args.save_history:
+                    workflow_kwargs["save_history"] = True
+                    workflow_kwargs["history_db_path"] = args.history_db_path
                 result, report = run_optimize_script_workflow(**workflow_kwargs)
             except Exception as error:  # noqa: BLE001 - CLI boundary
                 error_message = _format_exception_message(error)
@@ -356,6 +427,17 @@ def main(argv: list[str] | None = None) -> int:
         print("GPUBoost Agent\nAvailable commands: optimize")
         return 0
 
+    if args.command == "history":
+        if args.history_command == "list":
+            return _run_history_list(args)
+        if args.history_command == "show":
+            return _run_history_show(args)
+        if args.history_command == "compare":
+            return _run_history_compare(args)
+
+        print("GPUBoost History\nAvailable commands: list, show, compare")
+        return 0
+
     parser.print_help()
     return 0
 
@@ -369,6 +451,266 @@ def load_json_file(filepath: str) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"Expected JSON object in file: {filepath}")
     return data
+
+
+def _run_history_list(args: argparse.Namespace) -> int:
+    try:
+        history = list_history_runs(db_path=args.db_path)
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        error_message = _format_exception_message(error)
+        if args.json:
+            print(
+                json.dumps(
+                    build_history_list_error_payload(error_message),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(render_history_error_human("GPUBoost History", error_message))
+        return 1
+
+    if args.json:
+        print(
+            json.dumps(
+                build_history_list_json_payload(history),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_history_list_human(history))
+    return 0
+
+
+def _run_history_show(args: argparse.Namespace) -> int:
+    try:
+        record = load_history_run(args.run_id, db_path=args.db_path)
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        error_message = _format_exception_message(error)
+        if args.json:
+            print(
+                json.dumps(
+                    build_history_show_error_payload(error_message),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(render_history_error_human("GPUBoost History Run", error_message))
+        return 1
+
+    if record is None:
+        error_message = f"History run not found: {args.run_id}"
+        if args.json:
+            print(
+                json.dumps(
+                    build_history_show_error_payload(error_message),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(error_message)
+        return 1
+
+    if args.json:
+        print(
+            json.dumps(
+                build_history_show_json_payload(record),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_history_show_human(record))
+    return 0
+
+
+def _run_history_compare(args: argparse.Namespace) -> int:
+    try:
+        left = load_history_run(args.left_run_id, db_path=args.db_path)
+        right = load_history_run(args.right_run_id, db_path=args.db_path)
+        if left is None:
+            raise ValueError(f"History run not found: {args.left_run_id}")
+        if right is None:
+            raise ValueError(f"History run not found: {args.right_run_id}")
+        comparison = compare_history_runs(left, right)
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        error_message = _format_exception_message(error)
+        if args.json:
+            print(
+                json.dumps(
+                    build_history_compare_error_payload(error_message),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(render_history_error_human("GPUBoost History Compare", error_message))
+        return 1
+
+    if args.json:
+        print(
+            json.dumps(
+                build_history_compare_json_payload(comparison),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_history_compare_human(comparison))
+    return 0
+
+
+def build_history_list_json_payload(history: HistorySummary) -> dict[str, object]:
+    return {
+        "schema_version": "history.list.v1",
+        "command": "history list",
+        "history": history.to_dict(),
+    }
+
+
+def build_history_list_error_payload(error: str) -> dict[str, object]:
+    return {
+        "schema_version": "history.list.v1",
+        "command": "history list",
+        "history": None,
+        "error": error,
+    }
+
+
+def build_history_show_json_payload(record: HistoryRunRecord) -> dict[str, object]:
+    return {
+        "schema_version": "history.show.v1",
+        "command": "history show",
+        "run": record.to_dict(),
+    }
+
+
+def build_history_show_error_payload(error: str) -> dict[str, object]:
+    return {
+        "schema_version": "history.show.v1",
+        "command": "history show",
+        "run": None,
+        "error": error,
+    }
+
+
+def build_history_compare_json_payload(
+    comparison: HistoryCompareResult,
+) -> dict[str, object]:
+    return {
+        "schema_version": "history.compare.v1",
+        "command": "history compare",
+        "comparison": comparison.to_dict(),
+    }
+
+
+def build_history_compare_error_payload(error: str) -> dict[str, object]:
+    return {
+        "schema_version": "history.compare.v1",
+        "command": "history compare",
+        "comparison": None,
+        "error": error,
+    }
+
+
+def render_history_list_human(history: HistorySummary) -> str:
+    lines = [
+        "GPUBoost History",
+        f"Total runs: {history.total_runs}",
+    ]
+    if not history.runs:
+        lines.extend(["", "No history runs found."])
+        return "\n".join(lines)
+
+    lines.append("")
+    for record in history.runs:
+        lines.append(
+            "- "
+            f"{record.run_id} | {record.status} | {record.command} | "
+            f"{record.created_at} | script={record.script_path or 'none'} | "
+            f"trial={record.trial_summary.get('test_status') or record.trial_summary.get('status') or 'none'}"
+        )
+    return "\n".join(lines)
+
+
+def render_history_show_human(record: HistoryRunRecord) -> str:
+    lines = [
+        "GPUBoost History Run",
+        f"Run ID: {record.run_id}",
+        f"Status: {record.status}",
+        f"Command: {record.command}",
+        f"Created: {record.created_at}",
+        f"Goal: {record.goal_kind} - {record.goal_description}",
+        f"Script: {record.script_path or 'none'}",
+        f"Script SHA256: {record.script_sha256 or 'none'}",
+        f"GPU: {record.gpu_name or 'unknown'}",
+        f"CUDA available: {_format_optional_bool(record.cuda_available)}",
+        "",
+        "Actions:",
+    ]
+    if record.action_statuses:
+        lines.extend(
+            f"- {action_name}: {status}"
+            for action_name, status in record.action_statuses.items()
+        )
+    else:
+        lines.append("- none")
+
+    summary_sections = [
+        ("benchmark", record.benchmark_summary),
+        ("advisor", record.advisor_summary),
+        ("code", record.code_summary),
+        ("patch", record.patch_summary),
+        ("trial", record.trial_summary),
+        ("comparison", record.comparison_summary),
+    ]
+    non_empty_sections = [(name, data) for name, data in summary_sections if data]
+    if non_empty_sections:
+        lines.extend(["", "Summaries:"])
+        for name, data in non_empty_sections:
+            lines.append(f"- {name}: {_format_history_summary_dict(data)}")
+
+    if record.warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in record.warnings)
+
+    if record.error:
+        lines.extend(["", "Error:", f"- {record.error}"])
+
+    return "\n".join(lines)
+
+
+def render_history_compare_human(comparison: HistoryCompareResult) -> str:
+    lines = [
+        "GPUBoost History Compare",
+        f"Left: {comparison.left_run_id}",
+        f"Right: {comparison.right_run_id}",
+        f"Status: {comparison.status}",
+        f"Summary: {comparison.summary}",
+    ]
+    if comparison.changed_fields:
+        lines.extend(["", "Changed fields:"])
+        lines.extend(
+            f"- {field_name}: {value}"
+            for field_name, value in comparison.changed_fields.items()
+        )
+    else:
+        lines.extend(["", "No tracked fields changed."])
+
+    if comparison.warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in comparison.warnings)
+    if comparison.error:
+        lines.extend(["", "Error:", f"- {comparison.error}"])
+
+    return "\n".join(lines)
+
+
+def render_history_error_human(title: str, error: str) -> str:
+    return "\n".join([title, "Status: error", "", "Error:", f"- {error}"])
 
 
 def build_compare_json_payload(result: ComparisonResult) -> dict[str, object]:
@@ -666,6 +1008,10 @@ def render_agent_report_human(
     if comparison is not None:
         lines.extend(["", _format_agent_comparison_output(comparison)])
 
+    history_run_id = _get_agent_history_run_id(result)
+    if history_run_id is not None:
+        lines.extend(["", "History:", f"- Saved run: {history_run_id}"])
+
     lines.extend(
         [
             "",
@@ -693,6 +1039,7 @@ def build_agent_optimize_json_payload(
             "diff": _get_agent_diff_artifact(result),
             "trial": _get_agent_trial_artifact(result),
             "comparison": _get_agent_comparison_artifact(result),
+            "history_run_id": _get_agent_history_run_id(result),
         },
     }
 
@@ -709,6 +1056,7 @@ def build_agent_optimize_error_json_payload(error: str) -> dict[str, object]:
             "diff": None,
             "trial": None,
             "comparison": None,
+            "history_run_id": None,
         },
         "error": error,
     }
@@ -777,6 +1125,13 @@ def _get_agent_comparison_artifact(
     return None
 
 
+def _get_agent_history_run_id(result: AgentRunResult) -> str | None:
+    history_run_id = result.artifacts.get("history_run_id")
+    if isinstance(history_run_id, str) and history_run_id:
+        return history_run_id
+    return None
+
+
 def _format_agent_comparison_output(comparison: dict[str, object]) -> str:
     return "\n".join(
         [
@@ -827,6 +1182,16 @@ def _format_trial_output(trial: dict[str, object] | None) -> str:
 
 def _format_yes_no(value: bool) -> str:
     return "yes" if value else "no"
+
+
+def _format_optional_bool(value: bool | None) -> str:
+    if value is None:
+        return "unknown"
+    return "yes" if value else "no"
+
+
+def _format_history_summary_dict(data: dict[str, HistoryValue]) -> str:
+    return ", ".join(f"{key}={value}" for key, value in data.items())
 
 
 def _deduplicate_lines(items: list[str]) -> list[str]:

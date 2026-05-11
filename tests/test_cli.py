@@ -4,6 +4,7 @@ import json
 
 from gpuboost.agent.report import AgentReport, AgentReportSection
 from gpuboost.cli import main as cli_main
+from gpuboost.history.store import insert_history_run
 from gpuboost.schemas.agent import AgentAction, AgentGoal, AgentPlan, AgentRunResult
 from gpuboost.schemas.benchmark_result import BenchmarkSuiteResult
 from gpuboost.schemas.gpu_profile import (
@@ -11,6 +12,7 @@ from gpuboost.schemas.gpu_profile import (
     SystemProfile,
     TorchEnvironmentProfile,
 )
+from gpuboost.schemas.history import HistoryRunRecord
 from gpuboost.schemas.recommendation import AdvisorResult, Recommendation
 
 
@@ -798,7 +800,12 @@ def test_cli_agent_optimize_json_outputs_result_and_report(
     ]
     assert data["schema_version"] == "agent.optimize.v1"
     assert data["command"] == "agent optimize"
-    assert data["artifacts"] == {"comparison": None, "diff": None, "trial": None}
+    assert data["artifacts"] == {
+        "comparison": None,
+        "diff": None,
+        "history_run_id": None,
+        "trial": None,
+    }
     assert data["result"]["status"] == "ok"
     assert data["report"]["status"] == "ok"
     assert data["report"]["summary"] == "Synthetic report summary."
@@ -1027,7 +1034,12 @@ def test_cli_agent_optimize_unexpected_exception_json_output_is_valid(
     assert data["command"] == "agent optimize"
     assert data["result"] is None
     assert data["report"] is None
-    assert data["artifacts"] == {"comparison": None, "diff": None, "trial": None}
+    assert data["artifacts"] == {
+        "comparison": None,
+        "diff": None,
+        "history_run_id": None,
+        "trial": None,
+    }
     assert data["error"] == "workflow exploded"
     assert "GPUBoost Agent" not in captured.out
     assert "Safety:" not in captured.out
@@ -1110,7 +1122,12 @@ def test_build_agent_optimize_json_payload_returns_stable_dict() -> None:
     ]
     assert payload["schema_version"] == "agent.optimize.v1"
     assert payload["command"] == "agent optimize"
-    assert payload["artifacts"] == {"comparison": None, "diff": None, "trial": None}
+    assert payload["artifacts"] == {
+        "comparison": None,
+        "diff": None,
+        "history_run_id": None,
+        "trial": None,
+    }
     assert payload["result"]["goal"]["script_path"] == "train.py"
     assert payload["result"]["goal"]["options"]["quick"] is True
     assert payload["report"]["status"] == "ok"
@@ -1596,11 +1613,302 @@ def test_cli_compare_json_mode_contains_no_human_text(tmp_path, capsys) -> None:
     json.loads(captured.out)
 
 
+def test_cli_history_list_human_output_with_no_runs(tmp_path, capsys) -> None:
+    db_path = tmp_path / "history.db"
+
+    exit_code = cli_main.main(["history", "list", "--db-path", str(db_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost History" in captured.out
+    assert "Total runs: 0" in captured.out
+    assert "No history runs found." in captured.out
+
+
+def test_cli_history_list_human_output_with_runs(tmp_path, capsys) -> None:
+    db_path = tmp_path / "history.db"
+    insert_history_run(_history_record("older", created_at="2026-01-01T00:00:00+00:00"), db_path=db_path)
+    insert_history_run(_history_record("newer", created_at="2026-01-02T00:00:00+00:00"), db_path=db_path)
+
+    exit_code = cli_main.main(["history", "list", "--db-path", str(db_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert captured.out.index("newer") < captured.out.index("older")
+    assert "script=train.py" in captured.out
+    assert "trial=passed" in captured.out
+
+
+def test_cli_history_list_json_valid_json_and_schema(tmp_path, capsys) -> None:
+    db_path = tmp_path / "history.db"
+    insert_history_run(_history_record("run-001"), db_path=db_path)
+
+    exit_code = cli_main.main(["history", "list", "--db-path", str(db_path), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["schema_version"] == "history.list.v1"
+    assert data["command"] == "history list"
+    assert data["history"]["runs"][0]["run_id"] == "run-001"
+
+
+def test_cli_history_show_human_output_for_existing_run(tmp_path, capsys) -> None:
+    db_path = tmp_path / "history.db"
+    insert_history_run(_history_record("run-001"), db_path=db_path)
+
+    exit_code = cli_main.main(["history", "show", "run-001", "--db-path", str(db_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost History Run" in captured.out
+    assert "Run ID: run-001" in captured.out
+    assert "Script SHA256: abc123" in captured.out
+    assert "- inspect_system: completed" in captured.out
+    assert "- trial: status=passed" in captured.out
+
+
+def test_cli_history_show_json_valid_json_and_schema(tmp_path, capsys) -> None:
+    db_path = tmp_path / "history.db"
+    insert_history_run(_history_record("run-001"), db_path=db_path)
+
+    exit_code = cli_main.main(
+        ["history", "show", "run-001", "--db-path", str(db_path), "--json"]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["schema_version"] == "history.show.v1"
+    assert data["command"] == "history show"
+    assert data["run"]["run_id"] == "run-001"
+
+
+def test_cli_history_show_missing_run_human_exits_nonzero(tmp_path, capsys) -> None:
+    exit_code = cli_main.main(
+        ["history", "show", "missing", "--db-path", str(tmp_path / "history.db")]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "History run not found: missing" in captured.out
+
+
+def test_cli_history_show_missing_run_json_exits_nonzero(tmp_path, capsys) -> None:
+    exit_code = cli_main.main(
+        [
+            "history",
+            "show",
+            "missing",
+            "--db-path",
+            str(tmp_path / "history.db"),
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["schema_version"] == "history.show.v1"
+    assert data["run"] is None
+    assert data["error"] == "History run not found: missing"
+
+
+def test_cli_history_db_path_is_respected(tmp_path, capsys) -> None:
+    first_db = tmp_path / "first.db"
+    second_db = tmp_path / "second.db"
+    insert_history_run(_history_record("first"), db_path=first_db)
+    insert_history_run(_history_record("second"), db_path=second_db)
+
+    exit_code = cli_main.main(["history", "list", "--db-path", str(second_db)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "second" in captured.out
+    assert "first" not in captured.out
+
+
+def test_cli_history_output_omits_raw_source(tmp_path, capsys) -> None:
+    db_path = tmp_path / "history.db"
+    insert_history_run(_history_record("run-001"), db_path=db_path)
+
+    exit_code = cli_main.main(
+        ["history", "show", "run-001", "--db-path", str(db_path), "--json"]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "secret_training_value" not in captured.out
+    assert "source_code" not in captured.out
+    assert "raw_source" not in captured.out
+
+
+def test_cli_agent_optimize_save_history_passes_workflow_args(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    calls = []
+
+    def fake_run_optimize_script_workflow(**kwargs) -> tuple[AgentRunResult, AgentReport]:
+        calls.append(kwargs)
+        return _fake_agent_result_and_report(
+            script_path=kwargs.get("script_path"),
+            quick=kwargs.get("quick", True),
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+    db_path = tmp_path / "history.db"
+
+    exit_code = cli_main.main(
+        [
+            "agent",
+            "optimize",
+            "train.py",
+            "--save-history",
+            "--history-db-path",
+            str(db_path),
+        ]
+    )
+    capsys.readouterr()
+
+    assert exit_code == 0
+    assert calls[0]["save_history"] is True
+    assert calls[0]["history_db_path"] == str(db_path)
+
+
+def test_cli_agent_optimize_json_includes_history_run_id(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(**kwargs) -> tuple[AgentRunResult, AgentReport]:
+        result, report = _fake_agent_result_and_report(
+            script_path=kwargs.get("script_path"),
+            quick=kwargs.get("quick", True),
+        )
+        result.artifacts["history_run_id"] = "run-123"
+        return result, report
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "--save-history", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["artifacts"]["history_run_id"] == "run-123"
+
+
+def test_cli_agent_optimize_json_without_save_history_has_null_history_id(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        _fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["artifacts"]["history_run_id"] is None
+
+
+def test_cli_agent_optimize_human_output_shows_saved_run(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(**kwargs) -> tuple[AgentRunResult, AgentReport]:
+        result, report = _fake_agent_result_and_report(
+            script_path=kwargs.get("script_path"),
+            quick=kwargs.get("quick", True),
+        )
+        result.artifacts["history_run_id"] = "run-123"
+        return result, report
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "--save-history"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "History:" in captured.out
+    assert "- Saved run: run-123" in captured.out
+
+
+def test_cli_agent_optimize_history_db_path_without_save_history_is_accepted(
+    monkeypatch,
+    capsys,
+    tmp_path,
+) -> None:
+    calls = []
+
+    def fake_run_optimize_script_workflow(**kwargs) -> tuple[AgentRunResult, AgentReport]:
+        calls.append(kwargs)
+        return _fake_agent_result_and_report(
+            script_path=kwargs.get("script_path"),
+            quick=kwargs.get("quick", True),
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(
+        ["agent", "optimize", "--history-db-path", str(tmp_path / "history.db")]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "history_db_path" not in calls[0]
+    assert captured.err == ""
+
+
 def _fake_run_optimize_script_workflow(
     script_path: str | None = None,
     quick: bool = True,
 ) -> tuple[AgentRunResult, AgentReport]:
     return _fake_agent_result_and_report(script_path=script_path, quick=quick)
+
+
+def _history_record(
+    run_id: str,
+    *,
+    created_at: str = "2026-01-01T00:00:00+00:00",
+) -> HistoryRunRecord:
+    return HistoryRunRecord(
+        run_id=run_id,
+        created_at=created_at,
+        status="ok",
+        command="agent optimize",
+        schema_version="history.run.v1",
+        goal_kind="optimize_script",
+        goal_description="Optimize train.py",
+        script_path="train.py",
+        script_sha256="abc123",
+        gpu_name="NVIDIA Test GPU",
+        cuda_available=True,
+        trial_summary={"status": "passed"},
+        action_statuses={"inspect_system": "completed"},
+        metadata={"has_diff": False, "has_trial": True, "has_comparison": False},
+    )
 
 
 def _fake_missing_script_result_and_report(
