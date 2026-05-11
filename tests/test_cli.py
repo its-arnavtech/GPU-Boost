@@ -480,8 +480,42 @@ def test_cli_agent_optimize_human_output_omits_diff_section_without_diff(
 
     assert exit_code == 0
     assert "Reviewable Patch Diff:" not in captured.out
+    assert "Comparison:" not in captured.out
     assert "Safety:" in captured.out
     assert "Review generated diffs before applying changes." in captured.out
+    assert captured.err == ""
+
+
+def test_cli_agent_optimize_human_output_includes_comparison_when_present(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        return _fake_agent_result_and_report(
+            script_path=script_path,
+            quick=quick,
+            comparison_artifact={
+                "status": "ok",
+                "overall_verdict": "improved",
+            },
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Comparison:" in captured.out
+    assert "- Status: ok" in captured.out
+    assert "- Overall verdict: improved" in captured.out
     assert captured.err == ""
 
 
@@ -696,6 +730,7 @@ def test_cli_agent_optimize_final_smoke_matrix(monkeypatch, capsys) -> None:
     assert no_script_data["schema_version"] == "agent.optimize.v1"
     assert no_script_data["result"]["goal"]["script_path"] is None
     assert no_script_data["artifacts"]["diff"] is None
+    assert no_script_data["artifacts"]["comparison"] is None
     assert json_no_script.err == ""
 
     exit_code = cli_main.main(["agent", "optimize", "train.py", "--json"])
@@ -705,6 +740,7 @@ def test_cli_agent_optimize_final_smoke_matrix(monkeypatch, capsys) -> None:
     assert script_data["schema_version"] == "agent.optimize.v1"
     assert script_data["result"]["goal"]["script_path"] == "train.py"
     assert script_data["artifacts"]["diff"] == _FAKE_DIFF
+    assert script_data["artifacts"]["comparison"] is None
     assert "Reviewable Patch Diff:" not in json_script.out
     assert json_script.err == ""
 
@@ -762,7 +798,7 @@ def test_cli_agent_optimize_json_outputs_result_and_report(
     ]
     assert data["schema_version"] == "agent.optimize.v1"
     assert data["command"] == "agent optimize"
-    assert data["artifacts"] == {"diff": None, "trial": None}
+    assert data["artifacts"] == {"comparison": None, "diff": None, "trial": None}
     assert data["result"]["status"] == "ok"
     assert data["report"]["status"] == "ok"
     assert data["report"]["summary"] == "Synthetic report summary."
@@ -991,7 +1027,7 @@ def test_cli_agent_optimize_unexpected_exception_json_output_is_valid(
     assert data["command"] == "agent optimize"
     assert data["result"] is None
     assert data["report"] is None
-    assert data["artifacts"] == {"diff": None, "trial": None}
+    assert data["artifacts"] == {"comparison": None, "diff": None, "trial": None}
     assert data["error"] == "workflow exploded"
     assert "GPUBoost Agent" not in captured.out
     assert "Safety:" not in captured.out
@@ -1017,6 +1053,7 @@ def test_cli_agent_optimize_json_without_script_path_sets_null_script(
     assert data["result"]["goal"]["script_path"] is None
     assert data["result"]["goal"]["options"]["quick"] is True
     assert "Script: none" in data["report"]["sections"][0]["items"]
+    assert data["artifacts"]["comparison"] is None
     assert captured.err == ""
 
 
@@ -1073,10 +1110,30 @@ def test_build_agent_optimize_json_payload_returns_stable_dict() -> None:
     ]
     assert payload["schema_version"] == "agent.optimize.v1"
     assert payload["command"] == "agent optimize"
-    assert payload["artifacts"] == {"diff": None, "trial": None}
+    assert payload["artifacts"] == {"comparison": None, "diff": None, "trial": None}
     assert payload["result"]["goal"]["script_path"] == "train.py"
     assert payload["result"]["goal"]["options"]["quick"] is True
     assert payload["report"]["status"] == "ok"
+
+
+def test_cli_agent_optimize_script_json_includes_null_comparison_artifact(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        _fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["artifacts"]["comparison"] is None
+    assert data["result"]["goal"]["script_path"] == "train.py"
+    assert captured.err == ""
 
 
 def test_cli_trial_passes_trial_true_to_workflow(monkeypatch, capsys) -> None:
@@ -1356,6 +1413,189 @@ def test_cli_test_json_error_output_contains_no_human_text(capsys) -> None:
     assert "GPUBoost Agent" not in captured.out
 
 
+def test_cli_compare_human_output_includes_title_and_paths(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(tmp_path)
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Comparison" in captured.out
+    assert f"Baseline: {baseline}" in captured.out
+    assert f"Optimized: {optimized}" in captured.out
+    assert captured.err == ""
+
+
+def test_cli_compare_human_output_includes_overall_verdict(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(tmp_path)
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Overall verdict: improved" in captured.out
+
+
+def test_cli_compare_human_output_includes_metric_delta_line(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(tmp_path)
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "- best_fp16_tflops: 30.0 -> 33.0 TFLOPS (+10.00%) [improved]" in (
+        captured.out
+    )
+
+
+def test_cli_compare_json_outputs_valid_json(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(tmp_path)
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["schema_version"] == "comparison.v1"
+    assert data["command"] == "compare"
+    assert data["comparison"]["status"] == "ok"
+    assert captured.err == ""
+
+
+def test_cli_compare_json_includes_comparison(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(tmp_path)
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["comparison"]["baseline_label"] == str(baseline)
+    assert data["comparison"]["optimized_label"] == str(optimized)
+    metric_names = [
+        metric["name"]
+        for section in data["comparison"]["sections"]
+        for metric in section["metrics"]
+    ]
+    assert "best_fp16_tflops" in metric_names
+
+
+def test_cli_compare_missing_file_human_exits_nonzero_no_traceback(
+    tmp_path,
+    capsys,
+) -> None:
+    baseline = tmp_path / "missing.json"
+    optimized = tmp_path / "optimized.json"
+    optimized.write_text(json.dumps(_compare_benchmark(33.0)), encoding="utf-8")
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "GPUBoost Comparison" in captured.out
+    assert "File not found:" in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_compare_missing_file_json_exits_nonzero_valid_json(
+    tmp_path,
+    capsys,
+) -> None:
+    baseline = tmp_path / "missing.json"
+    optimized = tmp_path / "optimized.json"
+    optimized.write_text(json.dumps(_compare_benchmark(33.0)), encoding="utf-8")
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["schema_version"] == "comparison.v1"
+    assert data["command"] == "compare"
+    assert data["comparison"] is None
+    assert "File not found:" in data["error"]
+    assert "GPUBoost Comparison" not in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_compare_invalid_json_human_exits_nonzero_no_traceback(
+    tmp_path,
+    capsys,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    optimized = tmp_path / "optimized.json"
+    baseline.write_text("{not json", encoding="utf-8")
+    optimized.write_text(json.dumps(_compare_benchmark(33.0)), encoding="utf-8")
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Invalid JSON:" in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_compare_invalid_json_json_exits_nonzero_valid_json(
+    tmp_path,
+    capsys,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    optimized = tmp_path / "optimized.json"
+    baseline.write_text("{not json", encoding="utf-8")
+    optimized.write_text(json.dumps(_compare_benchmark(33.0)), encoding="utf-8")
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["comparison"] is None
+    assert "Invalid JSON:" in data["error"]
+    assert "GPUBoost Comparison" not in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_compare_status_error_exits_nonzero(tmp_path, capsys) -> None:
+    baseline = tmp_path / "baseline.json"
+    optimized = tmp_path / "optimized.json"
+    baseline.write_text(json.dumps({"results": []}), encoding="utf-8")
+    optimized.write_text(json.dumps({"results": []}), encoding="utf-8")
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Status: error" in captured.out
+    assert "No comparable metrics were found." in captured.out
+
+
+def test_cli_compare_partial_status_exits_zero(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(tmp_path, include_partial_only=True)
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Status: partial" in captured.out
+    assert "Warnings:" in captured.out
+
+
+def test_cli_compare_json_mode_contains_no_human_text(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(tmp_path)
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized), "--json"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Comparison" not in captured.out
+    assert "Overall verdict:" not in captured.out
+    json.loads(captured.out)
+
+
 def _fake_run_optimize_script_workflow(
     script_path: str | None = None,
     quick: bool = True,
@@ -1433,6 +1673,7 @@ def _fake_agent_result_and_report(
     status: str = "ok",
     diff: str | None = None,
     trial_artifact: dict[str, object] | None = None,
+    comparison_artifact: dict[str, object] | None = None,
 ) -> tuple[AgentRunResult, AgentReport]:
     goal = AgentGoal(
         id="optimize_script",
@@ -1473,7 +1714,11 @@ def _fake_agent_result_and_report(
         events=[],
         warnings=["synthetic warning"] if status == "partial" else [],
         error="synthetic failure" if status == "error" else None,
-        artifacts={"diff": diff, "trial": trial_artifact},
+        artifacts={
+            "diff": diff,
+            "trial": trial_artifact,
+            "comparison": comparison_artifact,
+        },
     )
     script_display = script_path if script_path is not None else "none"
     report = AgentReport(
@@ -1591,3 +1836,99 @@ def _fake_advisor_result(suite: BenchmarkSuiteResult) -> AdvisorResult:
         ],
         warnings=[],
     )
+
+
+def _write_compare_files(
+    tmp_path,
+    *,
+    include_partial_only: bool = False,
+):
+    baseline = tmp_path / "baseline.json"
+    optimized = tmp_path / "optimized.json"
+    if include_partial_only:
+        baseline.write_text(json.dumps(_compare_benchmark(30.0)), encoding="utf-8")
+        optimized.write_text(json.dumps(_compare_benchmark(33.0)), encoding="utf-8")
+        return baseline, optimized
+
+    baseline.write_text(
+        json.dumps(_complete_compare_benchmark(best_fp16_tflops=30.0)),
+        encoding="utf-8",
+    )
+    optimized.write_text(
+        json.dumps(_complete_compare_benchmark(best_fp16_tflops=33.0)),
+        encoding="utf-8",
+    )
+    return baseline, optimized
+
+
+def _complete_compare_benchmark(best_fp16_tflops: float) -> dict:
+    return {
+        "results": [
+            {
+                "name": "Matrix Multiplication",
+                "metrics": [
+                    {"name": "best_fp32_tflops", "value": 20.0, "unit": "TFLOPS"},
+                    {
+                        "name": "best_fp16_tflops",
+                        "value": best_fp16_tflops,
+                        "unit": "TFLOPS",
+                    },
+                    {"name": "fp16_speedup_ratio", "value": 4.0, "unit": "x"},
+                    {
+                        "name": "fp32_samples_per_sec",
+                        "value": 100.0,
+                        "unit": "samples/sec",
+                    },
+                    {
+                        "name": "amp_samples_per_sec",
+                        "value": 120.0,
+                        "unit": "samples/sec",
+                    },
+                    {"name": "amp_speedup_ratio", "value": 1.2, "unit": "x"},
+                    {
+                        "name": "best_images_per_sec",
+                        "value": 200.0,
+                        "unit": "images/sec",
+                    },
+                    {"name": "speedup_vs_batch_1", "value": 2.0, "unit": "x"},
+                    {"name": "best_batch_size", "value": 32, "unit": None},
+                    {
+                        "name": "max_successful_batch_size",
+                        "value": 64,
+                        "unit": None,
+                    },
+                ],
+            }
+        ]
+    }
+
+
+def _compare_benchmark(
+    best_fp16_tflops: float,
+    *,
+    fp16_speedup_ratio: float | None = None,
+) -> dict:
+    metrics = [
+        {
+            "name": "best_fp16_tflops",
+            "value": best_fp16_tflops,
+            "unit": "TFLOPS",
+        },
+    ]
+    if fp16_speedup_ratio is not None:
+        metrics.append(
+            {
+                "name": "fp16_speedup_ratio",
+                "value": fp16_speedup_ratio,
+                "unit": "x",
+            }
+        )
+
+    return {
+        "results": [
+            {
+                "name": "Matrix Multiplication",
+                "metrics": metrics,
+            }
+        ]
+    }

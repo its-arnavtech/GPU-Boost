@@ -194,7 +194,8 @@ code and never run unless `--test` is passed with `--trial`.
 
 JSON output uses schema version `agent.optimize.v1` and includes
 `schema_version`, `command`, `result`, `report`, `artifacts.diff`, and
-`artifacts.trial`.
+`artifacts.trial`. It also reserves `artifacts.comparison`, currently `null`,
+for future before/after comparison data.
 `quick=True` is the default. A `partial` status can occur when optional steps
 fail, such as missing script files.
 
@@ -218,6 +219,21 @@ gpuboost agent optimize examples/bad_train_sample.txt --trial --json
 The sample is intentionally kept as `.txt` so formatters and linters do not
 treat it as project Python code.
 
+Compare saved benchmark JSON files:
+
+```bash
+gpuboost benchmark --quick --json > baseline.json
+gpuboost benchmark --quick --json > optimized.json
+gpuboost compare baseline.json optimized.json
+gpuboost compare baseline.json optimized.json --json
+```
+
+Comparison JSON uses schema version `comparison.v1`. The command compares
+files only; it does not run benchmark commands, apply patches, or execute
+before/after workloads automatically. See [Comparison](docs/comparison.md) for
+the JSON shape, verdict meanings, limitations, and future benchmark-command
+design.
+
 ## Near-Term Commands
 
 Current commands:
@@ -232,6 +248,8 @@ gpuboost analyze train.py
 gpuboost analyze train.py --json
 gpuboost analyze train.py --patch
 gpuboost analyze train.py --json --patch
+gpuboost compare baseline.json optimized.json
+gpuboost compare baseline.json optimized.json --json
 gpuboost agent optimize
 gpuboost agent optimize --json
 gpuboost agent optimize train.py
@@ -244,7 +262,7 @@ gpuboost agent optimize train.py --trial --test "pytest"
 Planned commands, not yet implemented:
 
 ```bash
-gpuboost agent compare baseline.json optimized.json
+gpuboost agent optimize train.py --trial --benchmark-command "..."
 gpuboost history list
 gpuboost history show <run_id>
 gpuboost agent ask "Why is AMP slower on my machine?"
@@ -286,10 +304,11 @@ explanations.
 
 ### Phase 8: Before/After Validation and Comparison
 
-- Compare baseline and optimized benchmark JSON
-- Report speedups and regressions
-- Keep comparisons evidence-based
-- Add optional future benchmark command support
+- Implemented `gpuboost compare baseline.json optimized.json`
+- Supports stable `comparison.v1` JSON output
+- Compares saved benchmark JSON files only
+- Agent optimize JSON reserves `artifacts.comparison` for future integration
+- Future benchmark-command support remains explicit opt-in design only
 
 ### Phase 9: Local Agent Memory and Run History
 
