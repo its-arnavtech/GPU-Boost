@@ -14,6 +14,11 @@ from gpuboost.schemas.gpu_profile import (
     SystemProfile,
     TorchEnvironmentProfile,
 )
+from gpuboost.schemas.history import (
+    HistoryCompareResult,
+    HistoryRunRecord,
+    HistorySummary,
+)
 from gpuboost.schemas.benchmark_result import (
     BenchmarkMetric,
     BenchmarkResult,
@@ -60,6 +65,9 @@ __all__ = [
     "ComparisonSection",
     "GPUBoostProfile",
     "GPUDeviceProfile",
+    "HistoryCompareResult",
+    "HistoryRunRecord",
+    "HistorySummary",
     "PatchEdit",
     "PatchPlan",
     "PatchSuggestion",

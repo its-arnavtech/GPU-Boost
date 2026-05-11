@@ -5,6 +5,8 @@ from __future__ import annotations
 from gpuboost.agent.executor import ActionHandler, AgentExecutor, default_handlers
 from gpuboost.agent.planner import plan_for_goal
 from gpuboost.agent.report import AgentReport, build_agent_report
+from gpuboost.history.builder import build_history_run_record
+from gpuboost.history.store import insert_history_run
 from gpuboost.schemas.agent import AgentGoal, AgentRunResult
 
 
@@ -47,6 +49,8 @@ def run_optimize_script_workflow(
     quick: bool = True,
     trial: bool = False,
     test_command: str | None = None,
+    save_history: bool = False,
+    history_db_path: str | None = None,
 ) -> tuple[AgentRunResult, AgentReport]:
     """Run the deterministic optimize_script workflow without CLI integration."""
 
@@ -62,4 +66,11 @@ def run_optimize_script_workflow(
     )
     result = executor.execute_plan(plan)
     report = build_agent_report(result)
+    if save_history:
+        try:
+            record = build_history_run_record(result)
+            insert_history_run(record, db_path=history_db_path)
+            result.artifacts["history_run_id"] = record.run_id
+        except Exception as error:  # noqa: BLE001 - history is best effort
+            result.warnings.append(f"Failed to save history: {error}")
     return result, report

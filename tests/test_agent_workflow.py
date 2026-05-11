@@ -19,6 +19,7 @@ from gpuboost.agent.workflow import (
     create_optimize_script_goal,
     run_optimize_script_workflow,
 )
+from gpuboost.history.store import load_history_run
 from gpuboost.schemas.agent import AgentAction, AgentRunResult
 
 
@@ -155,6 +156,120 @@ def test_workflow_returns_error_report_when_required_fake_handler_fails() -> Non
     assert result.error == "benchmark failed"
     assert report.status == "error"
     assert report.error == "benchmark failed"
+
+
+def test_workflow_save_history_false_does_not_create_db(tmp_path) -> None:
+    db_path = tmp_path / "history.db"
+
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(),
+        save_history=False,
+        history_db_path=str(db_path),
+    )
+
+    assert result.status == "ok"
+    assert not db_path.exists()
+    assert "history_run_id" not in result.artifacts
+
+
+def test_workflow_save_history_true_creates_db_and_stores_run(tmp_path) -> None:
+    script_path = tmp_path / "train.py"
+    script_path.write_text("value = 1\n", encoding="utf-8")
+    db_path = tmp_path / "history.db"
+
+    result, _report = run_optimize_script_workflow(
+        script_path=str(script_path),
+        handlers=_fake_handlers(source_path=script_path),
+        save_history=True,
+        history_db_path=str(db_path),
+    )
+
+    run_id = result.artifacts["history_run_id"]
+    stored = load_history_run(str(run_id), db_path=db_path)
+
+    assert db_path.exists()
+    assert stored is not None
+    assert stored.run_id == run_id
+    assert stored.status == "ok"
+
+
+def test_workflow_history_run_id_is_set_when_save_succeeds(tmp_path) -> None:
+    db_path = tmp_path / "history.db"
+
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(),
+        save_history=True,
+        history_db_path=str(db_path),
+    )
+
+    assert isinstance(result.artifacts["history_run_id"], str)
+    assert result.artifacts["history_run_id"]
+
+
+def test_workflow_history_save_failure_warns_without_failing(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from gpuboost.agent import workflow
+
+    def fail_save(*args, **kwargs) -> None:
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(workflow, "insert_history_run", fail_save)
+
+    result, report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(),
+        save_history=True,
+        history_db_path=str(tmp_path / "history.db"),
+    )
+
+    assert result.status == "ok"
+    assert report.status == "ok"
+    assert "history_run_id" not in result.artifacts
+    assert result.warnings[-1] == "Failed to save history: database unavailable"
+
+
+def test_workflow_history_does_not_store_raw_source_code(tmp_path) -> None:
+    script_path = tmp_path / "train.py"
+    source = "secret_training_value = 42\n"
+    script_path.write_text(source, encoding="utf-8")
+    db_path = tmp_path / "history.db"
+
+    result, _report = run_optimize_script_workflow(
+        script_path=str(script_path),
+        handlers=_fake_handlers(source_path=script_path),
+        save_history=True,
+        history_db_path=str(db_path),
+    )
+    stored = load_history_run(str(result.artifacts["history_run_id"]), db_path=db_path)
+
+    assert stored is not None
+    assert source not in str(stored.to_dict())
+    assert "source_code" not in stored.to_dict()
+    assert "raw_source" not in stored.to_dict()
+
+
+def test_workflow_history_stores_script_hash_when_script_exists(tmp_path) -> None:
+    from gpuboost.history.builder import hash_text
+
+    script_path = tmp_path / "train.py"
+    source = "value = 1\n"
+    script_path.write_text(source, encoding="utf-8", newline="\n")
+    db_path = tmp_path / "history.db"
+
+    result, _report = run_optimize_script_workflow(
+        script_path=str(script_path),
+        handlers=_fake_handlers(source_path=script_path),
+        save_history=True,
+        history_db_path=str(db_path),
+    )
+    stored = load_history_run(str(result.artifacts["history_run_id"]), db_path=db_path)
+
+    assert stored is not None
+    assert stored.script_sha256 == hash_text(source)
 
 
 def test_workflow_can_use_injected_handlers_instead_of_default_handlers() -> None:

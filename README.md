@@ -171,6 +171,7 @@ gpuboost agent optimize train.py --quick
 gpuboost agent optimize train.py --trial
 gpuboost agent optimize train.py --trial --json
 gpuboost agent optimize train.py --trial --test "pytest"
+gpuboost agent optimize train.py --save-history
 ```
 
 Without a script path, the agent performs system-level optimization analysis:
@@ -194,8 +195,9 @@ code and never run unless `--test` is passed with `--trial`.
 
 JSON output uses schema version `agent.optimize.v1` and includes
 `schema_version`, `command`, `result`, `report`, `artifacts.diff`, and
-`artifacts.trial`. It also reserves `artifacts.comparison`, currently `null`,
-for future before/after comparison data.
+`artifacts.trial`. It also includes `artifacts.comparison`, currently `null`
+unless comparison data is attached, and `artifacts.history_run_id`, which is
+set only when `--save-history` succeeds.
 `quick=True` is the default. A `partial` status can occur when optional steps
 fail, such as missing script files.
 
@@ -206,6 +208,25 @@ Agent exit-code policy:
 - `error` -> `1`
 
 See [Agent CLI](docs/agent-cli.md) for examples and the JSON shape.
+
+Save and inspect local run history:
+
+```bash
+gpuboost agent optimize train.py --save-history
+gpuboost history list
+gpuboost history list --json
+gpuboost history show <run_id>
+gpuboost history show <run_id> --json
+gpuboost history compare <left_run_id> <right_run_id>
+gpuboost history compare <left_run_id> <right_run_id> --json
+```
+
+History is local-only and defaults to `~/.gpuboost/gpuboost.db`. It stores
+script path, script SHA256, statuses, counts, warnings, and safe summaries. It
+does not store raw source code, raw diffs, trial stdout, or trial stderr by
+default. Use `--db-path` on history commands or `--history-db-path` on
+`agent optimize --save-history` for temporary development databases. See
+[Local History](docs/history.md).
 
 Try the static analysis demo sample:
 
@@ -257,14 +278,16 @@ gpuboost agent optimize train.py --json
 gpuboost agent optimize train.py --quick
 gpuboost agent optimize train.py --trial
 gpuboost agent optimize train.py --trial --test "pytest"
+gpuboost agent optimize train.py --save-history
+gpuboost history list
+gpuboost history show <run_id>
+gpuboost history compare <left_run_id> <right_run_id>
 ```
 
 Planned commands, not yet implemented:
 
 ```bash
 gpuboost agent optimize train.py --trial --benchmark-command "..."
-gpuboost history list
-gpuboost history show <run_id>
 gpuboost agent ask "Why is AMP slower on my machine?"
 ```
 
@@ -312,12 +335,13 @@ explanations.
 
 ### Phase 9: Local Agent Memory and Run History
 
-- Store local SQLite data under `~/.gpuboost/`
-- Store run history, script hash, findings, recommendations, patches,
+- Stores local SQLite data under `~/.gpuboost/`
+- Stores run history, script hash, safe summaries, statuses, counts,
   warnings, and trial results
-- Add `gpuboost history list`, `gpuboost history show <run_id>`, and
+- Does not store raw source code, raw diffs, stdout, or stderr by default
+- Adds `gpuboost history list`, `gpuboost history show <run_id>`, and
   `gpuboost history compare`
-- Keep everything local and private by default
+- Keeps everything local and private by default
 
 ### Phase 10: Optional LLM Explanation / Natural-Language Agent Layer
 
@@ -369,6 +393,8 @@ Goal -> Planner -> Actions -> Executor -> State -> Validation -> Report -> Memor
 - User code is not uploaded anywhere by default.
 - Local run history stays local unless the user explicitly exports or
   contributes data.
+- Local run history does not store raw source code, raw diffs, trial stdout, or
+  trial stderr by default.
 
 ## Run Tests
 
@@ -381,8 +407,6 @@ The test suite does not require an NVIDIA GPU.
 ## Not Included Yet
 
 - `--apply` or original source editing
-- Before/after benchmark comparison
-- Local run history database
 - Optional LLM explanation layer
 - Dashboard code
 - Daemon code

@@ -11,6 +11,7 @@ gpuboost agent optimize train.py --quick
 gpuboost agent optimize train.py --trial
 gpuboost agent optimize train.py --trial --json
 gpuboost agent optimize train.py --trial --test "pytest"
+gpuboost agent optimize train.py --save-history
 ```
 
 The current agent workflow defaults to `quick=True` because the implemented
@@ -88,6 +89,13 @@ GPUBoost does not apply patches automatically. Review generated diffs before app
 
 If no diff exists, the `Reviewable Patch Diff` section is omitted.
 
+When `--save-history` is passed, the human output includes:
+
+```text
+History:
+- Saved run: run_...
+```
+
 ## JSON Output
 
 JSON output is valid JSON only and uses schema version `agent.optimize.v1`:
@@ -100,7 +108,9 @@ JSON output is valid JSON only and uses schema version `agent.optimize.v1`:
   "report": {},
   "artifacts": {
     "diff": null,
-    "trial": null
+    "trial": null,
+    "comparison": null,
+    "history_run_id": null
   }
 }
 ```
@@ -111,6 +121,9 @@ The same diff is also exposed in `result.artifacts.diff`.
 When trial mode is enabled, `artifacts.trial` contains a `TrialResult` with the
 workspace record, step list, patch status, syntax status, optional test command
 status, warnings, and `original_file_unchanged`.
+
+When `--save-history` succeeds, `artifacts.history_run_id` contains the saved
+history run ID. Without `--save-history`, it is `null`.
 
 Unexpected workflow exceptions return valid JSON with `result` and `report`
 set to `null`:
@@ -123,7 +136,9 @@ set to `null`:
   "report": null,
   "artifacts": {
     "diff": null,
-    "trial": null
+    "trial": null,
+    "comparison": null,
+    "history_run_id": null
   },
   "error": "error message"
 }
@@ -137,8 +152,15 @@ compilation only and do not import or run the target script. A `--test` command
 is explicit opt-in and may execute arbitrary user-provided code in the trial
 workspace.
 
-Phase 7 implements the safe trial workspace. History, model/data pipelines, and
-LLM features are not implemented yet.
+Phase 7 implements the safe trial workspace. Phase 9 adds optional local
+history. Model/data pipelines and LLM features are not implemented yet.
+
+`--save-history` stores a local SQLite history record under
+`~/.gpuboost/gpuboost.db` by default. It stores script path, script SHA256,
+statuses, counts, warnings, and safe summaries. It does not store raw source
+code, raw diffs, trial stdout, or trial stderr by default. Use
+`--history-db-path` to point at a temporary database for development or tests.
+See [Local History](history.md).
 
 ## Exit Codes
 
@@ -155,7 +177,6 @@ JSON preserves action statuses and errors in `result.plan.actions`.
 
 - No auto-apply or `--apply`
 - No LLM layer yet
-- No history database yet
 - No model or data pipeline features yet
 - Quick benchmark only for now
 - Full benchmark agent mode is not implemented yet
@@ -170,4 +191,6 @@ JSON preserves action statuses and errors in `result.plan.actions`.
 - Error/partial handling implemented
 - CPU-safe test coverage
 - Phase 7: trial workspace
-- Future: before/after validation, history, LLM explanations
+- Phase 8: before/after comparison
+- Phase 9: optional local run history
+- Future: LLM explanations
