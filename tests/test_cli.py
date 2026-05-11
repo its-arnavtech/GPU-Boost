@@ -307,6 +307,13 @@ def test_cli_agent_command_without_subcommand_still_works(capsys) -> None:
     assert captured.err == ""
 
 
+def test_agent_status_to_exit_code_maps_known_statuses() -> None:
+    assert cli_main.agent_status_to_exit_code("ok") == 0
+    assert cli_main.agent_status_to_exit_code("partial") == 0
+    assert cli_main.agent_status_to_exit_code("error") == 1
+    assert cli_main.agent_status_to_exit_code("weird") == 1
+
+
 def test_cli_agent_optimize_human_output_calls_workflow(
     monkeypatch,
     capsys,
@@ -617,6 +624,117 @@ def test_cli_agent_optimize_partial_human_output_includes_partial_status(
     assert captured.err == ""
 
 
+def test_cli_agent_optimize_partial_human_output_surfaces_failed_action(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        return _fake_missing_script_result_and_report(script_path, quick)
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "missing.py"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Status: partial" in captured.out
+    assert "- analyze_code: failed" in captured.out
+    assert "Error:" in captured.out
+    assert "Unable to read file: missing.py" in captured.out
+    assert captured.err == ""
+
+
+def test_cli_agent_optimize_final_smoke_matrix(monkeypatch, capsys) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        diff = _FAKE_DIFF if script_path else None
+        return _fake_agent_result_and_report(
+            script_path=script_path,
+            quick=quick,
+            diff=diff,
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize"])
+    human_no_script = capsys.readouterr()
+    assert exit_code == 0
+    assert "GPUBoost Agent" in human_no_script.out
+    assert "Script: none" in human_no_script.out
+    assert "Safety:" in human_no_script.out
+    assert "Reviewable Patch Diff:" not in human_no_script.out
+    assert human_no_script.err == ""
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py"])
+    human_script = capsys.readouterr()
+    assert exit_code == 0
+    assert "Script: train.py" in human_script.out
+    assert "Reviewable Patch Diff:" in human_script.out
+    assert _FAKE_DIFF in human_script.out
+    assert human_script.err == ""
+
+    exit_code = cli_main.main(["agent", "optimize", "--json"])
+    json_no_script = capsys.readouterr()
+    no_script_data = json.loads(json_no_script.out)
+    assert exit_code == 0
+    assert no_script_data["schema_version"] == "agent.optimize.v1"
+    assert no_script_data["result"]["goal"]["script_path"] is None
+    assert no_script_data["artifacts"]["diff"] is None
+    assert json_no_script.err == ""
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py", "--json"])
+    json_script = capsys.readouterr()
+    script_data = json.loads(json_script.out)
+    assert exit_code == 0
+    assert script_data["schema_version"] == "agent.optimize.v1"
+    assert script_data["result"]["goal"]["script_path"] == "train.py"
+    assert script_data["artifacts"]["diff"] == _FAKE_DIFF
+    assert "Reviewable Patch Diff:" not in json_script.out
+    assert json_script.err == ""
+
+
+def test_cli_agent_optimize_unexpected_exception_human_output_is_clean(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "GPUBoost Agent" in captured.out
+    assert "Command: optimize" in captured.out
+    assert "Status: error" in captured.out
+    assert "Error:" in captured.out
+    assert "boom" in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
 def test_cli_agent_optimize_json_outputs_result_and_report(
     monkeypatch,
     capsys,
@@ -837,6 +955,47 @@ def test_cli_agent_optimize_exits_nonzero_when_result_status_is_error(
     assert captured.err == ""
 
 
+def test_cli_agent_optimize_unexpected_exception_json_output_is_valid(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        raise RuntimeError("workflow exploded")
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert sorted(data) == [
+        "artifacts",
+        "command",
+        "error",
+        "report",
+        "result",
+        "schema_version",
+    ]
+    assert data["schema_version"] == "agent.optimize.v1"
+    assert data["command"] == "agent optimize"
+    assert data["result"] is None
+    assert data["report"] is None
+    assert data["artifacts"] == {"diff": None}
+    assert data["error"] == "workflow exploded"
+    assert "GPUBoost Agent" not in captured.out
+    assert "Safety:" not in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
 def test_cli_agent_optimize_json_without_script_path_sets_null_script(
     monkeypatch,
     capsys,
@@ -922,6 +1081,70 @@ def _fake_run_optimize_script_workflow(
     quick: bool = True,
 ) -> tuple[AgentRunResult, AgentReport]:
     return _fake_agent_result_and_report(script_path=script_path, quick=quick)
+
+
+def _fake_missing_script_result_and_report(
+    script_path: str | None,
+    quick: bool,
+) -> tuple[AgentRunResult, AgentReport]:
+    script_display = script_path or "missing.py"
+    goal = AgentGoal(
+        id="optimize_script",
+        kind="optimize_script",
+        description=f"Optimize {script_display} for NVIDIA GPU performance",
+        script_path=script_path,
+        options={"quick": quick},
+        constraints=["do_not_modify_original_file"],
+    )
+    plan = AgentPlan(
+        id="plan_optimize_script",
+        goal=goal,
+        actions=[
+            AgentAction(
+                id="inspect_system",
+                name="inspect_system",
+                description="Collect system information.",
+                required=True,
+                status="completed",
+            ),
+            AgentAction(
+                id="analyze_code",
+                name="analyze_code",
+                description="Analyze code.",
+                required=False,
+                status="failed",
+                error=f"Unable to read file: {script_display}",
+            ),
+        ],
+    )
+    result = AgentRunResult(
+        generated_at="2026-01-01T00:00:00+00:00",
+        goal=goal,
+        plan=plan,
+        status="partial",
+        warnings=["Skipped because dependency failed: analyze_code"],
+        artifacts={"diff": None},
+    )
+    report = AgentReport(
+        title="GPUBoost Agent Report",
+        status="partial",
+        summary="The agent workflow completed with some non-fatal failures.",
+        sections=[
+            AgentReportSection(
+                title="Goal",
+                items=[
+                    "Kind: optimize_script",
+                    f"Script: {script_display}",
+                ],
+            ),
+            AgentReportSection(
+                title="Errors",
+                items=[f"analyze_code: Unable to read file: {script_display}"],
+            ),
+        ],
+        warnings=["Skipped because dependency failed: analyze_code"],
+    )
+    return result, report
 
 
 def _fake_agent_result_and_report(

@@ -1,7 +1,8 @@
 # Agent Core
 
-GPUBoost Phase 5 implements a deterministic, non-LLM agent core. It is a
-foundation for the future Phase 6 CLI command, not a user-facing command yet.
+GPUBoost Phase 5 implements a deterministic, non-LLM agent core. Phase 6 wraps
+this core in the `gpuboost agent optimize` CLI while keeping the workflow
+review-only and deterministic.
 
 ## Architecture
 
@@ -26,20 +27,21 @@ Main modules:
 review-only constraints. `run_optimize_script_workflow()` runs the deterministic
 Phase 5 flow and returns an `AgentRunResult` plus `AgentReport`.
 
-This helper is not exposed as a CLI command yet. Phase 6 will wrap it in
-`gpuboost agent optimize`.
+This helper is exposed by the Phase 6 `gpuboost agent optimize` CLI. Tests still
+exercise the helper directly with fake handlers so benchmark and analyzer logic
+do not run in unit coverage.
 
 ## Safety Principles
 
 - No source files are edited.
 - No patches are applied automatically.
 - Patch output is review-only.
-- No LLM is used in Phase 5.
+- No LLM is used in Phase 5 or the Phase 6 CLI wrapper.
 - No network access is required for agent tests.
 - Tests are CPU-safe and use fake handlers where integration coverage is needed.
 
 ## Known Follow-Ups
 
-- Review dependency semantics for skipped actions before Phase 6 CLI integration.
-- Decide whether `AgentRunResult` should expose selected summary metadata, or
-  whether richer Phase 6 reporting should consume `AgentState` directly.
+- Safe trial workspace support is not implemented yet.
+- Full benchmark agent mode is not implemented yet; the current agent workflow
+  uses the quick benchmark action.

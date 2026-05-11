@@ -59,10 +59,18 @@ evidence-based optimization tool for CUDA and PyTorch development.
 - Deterministic, non-LLM agent core is implemented
 - Supports goal schemas, run state, action registry, deterministic planning,
   executor, real handlers, and report builder
-- Not yet exposed as a CLI command
-- Phase 6 will add `gpuboost agent optimize train.py`
 - Agent core does not apply patches automatically
 - Current behavior remains safe and review-only
+
+### Phase 6: Agent CLI
+
+- Exposes `gpuboost agent optimize` for a one-shot deterministic workflow
+- Supports human-readable reports and stable JSON output
+- Uses schema version `agent.optimize.v1` for JSON automation
+- Includes review-only patch diffs in `artifacts.diff` when safe suggestions
+  exist
+- Defaults to the quick benchmark path, matching the current implemented agent
+  action set, with `quick=True`
 
 ## Install For Development
 
@@ -143,6 +151,50 @@ gpuboost analyze train.py --json --patch
 Patch suggestions are unified diffs for review. GPUBoost never applies changes
 automatically.
 
+Run the deterministic agent optimize workflow:
+
+```bash
+gpuboost agent optimize
+gpuboost agent optimize --json
+gpuboost agent optimize train.py
+gpuboost agent optimize train.py --json
+gpuboost agent optimize train.py --quick
+```
+
+Without a script path, the agent performs system-level optimization analysis:
+
+- inspect system
+- quick benchmark
+- advisor recommendations
+- summary
+
+With a script path, the agent also analyzes PyTorch code, creates a safe patch
+plan, and generates a reviewable unified diff when patchable findings exist.
+GPUBoost never applies patches automatically; diffs are review-only.
+
+JSON output uses schema version `agent.optimize.v1` and includes
+`schema_version`, `command`, `result`, `report`, and `artifacts.diff`.
+`quick=True` is the default. A `partial` status can occur when optional steps
+fail, such as missing script files.
+
+Agent exit-code policy:
+
+- `ok` -> `0`
+- `partial` -> `0`
+- `error` -> `1`
+
+See [Agent CLI](docs/agent-cli.md) for examples and the JSON shape.
+
+Try the static analysis demo sample:
+
+```bash
+gpuboost agent optimize examples/bad_train_sample.txt
+gpuboost agent optimize examples/bad_train_sample.txt --json
+```
+
+The sample is intentionally kept as `.txt` so formatters and linters do not
+treat it as project Python code.
+
 ## Near-Term Commands
 
 Current commands:
@@ -157,13 +209,16 @@ gpuboost analyze train.py
 gpuboost analyze train.py --json
 gpuboost analyze train.py --patch
 gpuboost analyze train.py --json --patch
+gpuboost agent optimize
+gpuboost agent optimize --json
+gpuboost agent optimize train.py
+gpuboost agent optimize train.py --json
+gpuboost agent optimize train.py --quick
 ```
 
 Planned commands, not yet implemented:
 
 ```bash
-gpuboost agent optimize train.py
-gpuboost agent optimize train.py --json
 gpuboost agent optimize train.py --trial
 gpuboost agent optimize train.py --trial --test "pytest"
 gpuboost agent compare baseline.json optimized.json
@@ -175,9 +230,9 @@ gpuboost agent ask "Why is AMP slower on my machine?"
 ## Agentic AI Roadmap
 
 Phases 5-10 pivot GPUBoost from a benchmark and analysis CLI into an agentic AI
-production system. Phase 5 is implemented as a deterministic core; later phases
-will add CLI access, trial workspaces, validation, history, and optional LLM
-explanations.
+production system. Phase 5 is implemented as a deterministic core, and Phase 6
+adds CLI access. Later phases will add trial workspaces, validation, history,
+and optional LLM explanations.
 
 ### Phase 5: Agent Core - State, Actions, Planner, Executor
 
@@ -190,10 +245,11 @@ explanations.
 
 ### Phase 6: Agent CLI - One-Shot Optimize Workflow
 
-- Add `gpuboost agent optimize train.py`
+- Implemented `gpuboost agent optimize [script_path]`
 - Agent runs inspector, quick benchmark, advisor, code analyzer, patch planner,
-  diff generator, and final report
-- Add `--json`
+  diff generator, and final report when a script path is provided
+- JSON output is stable and versioned with `agent.optimize.v1`
+- Reviewable patch diffs are included in human output and `artifacts.diff`
 - Still review-only and safe by default
 
 ### Phase 7: Safe Trial Workspace
@@ -280,7 +336,6 @@ The test suite does not require an NVIDIA GPU.
 
 ## Not Included Yet
 
-- Agent CLI
 - Trial workspace patch application
 - Before/after benchmark comparison
 - Local run history database

@@ -224,10 +224,25 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent":
         if args.agent_command == "optimize":
-            result, report = run_optimize_script_workflow(
-                script_path=args.script_path,
-                quick=args.quick,
-            )
+            try:
+                result, report = run_optimize_script_workflow(
+                    script_path=args.script_path,
+                    quick=args.quick,
+                )
+            except Exception as error:  # noqa: BLE001 - CLI boundary
+                error_message = _format_exception_message(error)
+                if args.json:
+                    print(
+                        json.dumps(
+                            build_agent_optimize_error_json_payload(error_message),
+                            indent=2,
+                            sort_keys=True,
+                        )
+                    )
+                else:
+                    print(render_agent_unexpected_error_human(error_message))
+                return 1
+
             if args.json:
                 print(
                     json.dumps(
@@ -248,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(output)
                 else:
                     Console().print(output, markup=False, soft_wrap=True)
-            return 1 if result.status == "error" else 0
+            return agent_status_to_exit_code(result.status)
 
         print("GPUBoost Agent\nAvailable commands: optimize")
         return 0
@@ -473,6 +488,51 @@ def build_agent_optimize_json_payload(
             "diff": _get_agent_diff_artifact(result),
         },
     }
+
+
+def build_agent_optimize_error_json_payload(error: str) -> dict[str, object]:
+    """Build the stable JSON payload for unexpected agent optimize errors."""
+
+    return {
+        "schema_version": "agent.optimize.v1",
+        "command": "agent optimize",
+        "result": None,
+        "report": None,
+        "artifacts": {
+            "diff": None,
+        },
+        "error": error,
+    }
+
+
+def render_agent_unexpected_error_human(error: str) -> str:
+    """Render a clean human-readable unexpected agent error."""
+
+    return "\n".join(
+        [
+            "GPUBoost Agent",
+            "Command: optimize",
+            "Status: error",
+            "",
+            "Error:",
+            error,
+        ]
+    )
+
+
+def agent_status_to_exit_code(status: str) -> int:
+    """Return the CLI exit code for an agent result status."""
+
+    if status in {"ok", "partial"}:
+        return 0
+    return 1
+
+
+def _format_exception_message(error: Exception) -> str:
+    message = str(error)
+    if message:
+        return message
+    return error.__class__.__name__
 
 
 def _get_agent_diff_artifact(result: AgentRunResult) -> str | None:
