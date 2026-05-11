@@ -13,11 +13,13 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
 )
 from gpuboost.agent.state import AgentState
 from gpuboost.schemas.agent import AgentAction, AgentGoal
+from gpuboost.schemas.trial import TrialResult
 
 
 @dataclass(slots=True)
@@ -264,6 +266,7 @@ def test_summarize_results_produces_correct_counts() -> None:
         "code_finding_count": 2,
         "patch_suggestion_count": 1,
         "has_diff": True,
+        "has_trial_result": False,
         "warning_count": 2,
         "failed_action_count": 1,
     }
@@ -280,8 +283,65 @@ def test_default_handlers_contains_all_action_names() -> None:
         ANALYZE_CODE,
         CREATE_PATCH_PLAN,
         GENERATE_DIFF,
+        RUN_TRIAL_WORKSPACE,
         SUMMARIZE_RESULTS,
     }
+
+
+def test_run_trial_workspace_handler_stores_trial_result(monkeypatch) -> None:
+    trial_result = TrialResult(
+        generated_at="2026-01-01T00:00:00+00:00",
+        status="passed",
+        patch_applied=True,
+        syntax_check_status="passed",
+        test_status="skipped",
+        original_file_unchanged=True,
+        warnings=["trial warning"],
+    )
+    captured: dict[str, object] = {}
+
+    def fake_run_patch_trial(**kwargs):
+        captured.update(kwargs)
+        return trial_result
+
+    monkeypatch.setattr(handlers.trial_engine, "run_patch_trial", fake_run_patch_trial)
+    state = _make_state(script_path="train.py")
+    state.metadata["_patch_plan"] = FakeArtifact(data={"status": "ok"})
+
+    handlers.handle_run_trial_workspace(
+        state,
+        _make_action(
+            RUN_TRIAL_WORKSPACE,
+            inputs={"script_path": "train.py", "test_command": "python -c pass"},
+        ),
+    )
+
+    assert captured["original_file"] == "train.py"
+    assert captured["patch_plan"] is state.metadata["_patch_plan"]
+    assert captured["test_command"] == "python -c pass"
+    assert state.metadata["_trial_result"] is trial_result
+    assert state.metadata["trial_result"] == trial_result.to_dict()
+    assert state.warnings == ["trial warning"]
+
+
+def test_run_trial_workspace_handler_raises_on_failed_result(monkeypatch) -> None:
+    trial_result = TrialResult(
+        generated_at="2026-01-01T00:00:00+00:00",
+        status="failed",
+        patch_applied=False,
+        original_file_unchanged=True,
+        error="trial failed",
+    )
+    monkeypatch.setattr(
+        handlers.trial_engine,
+        "run_patch_trial",
+        lambda **_kwargs: trial_result,
+    )
+    state = _make_state(script_path="train.py")
+    state.metadata["_patch_plan"] = FakeArtifact(data={"status": "ok"})
+
+    with pytest.raises(ValueError, match="trial failed"):
+        handlers.handle_run_trial_workspace(state, _make_action(RUN_TRIAL_WORKSPACE))
 
 
 def test_handlers_do_not_apply_patches_or_write_files(monkeypatch, tmp_path) -> None:

@@ -8,11 +8,13 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
 )
 from gpuboost.agent.planner import (
     NO_SCRIPT_PATH_WARNING,
+    TRIAL_REQUIRES_SCRIPT_PATH_WARNING,
     create_optimize_script_plan,
     plan_for_goal,
 )
@@ -102,6 +104,32 @@ def test_summarize_results_depends_on_all_included_prior_actions() -> None:
     assert plan_without_script.actions[-1].depends_on == NO_SCRIPT_ACTIONS[:-1]
 
 
+def test_planner_includes_trial_action_when_requested_with_script_path() -> None:
+    plan = create_optimize_script_plan(
+        _make_goal(script_path="train.py", trial=True),
+    )
+
+    assert RUN_TRIAL_WORKSPACE in [action.name for action in plan.actions]
+    assert plan.actions[-2].name == RUN_TRIAL_WORKSPACE
+
+
+def test_planner_skips_trial_without_script_path_and_adds_warning() -> None:
+    plan = create_optimize_script_plan(_make_goal(script_path=None, trial=True))
+
+    assert RUN_TRIAL_WORKSPACE not in [action.name for action in plan.actions]
+    assert TRIAL_REQUIRES_SCRIPT_PATH_WARNING in plan.warnings
+
+
+def test_summarize_results_depends_on_trial_action_when_included() -> None:
+    plan = create_optimize_script_plan(
+        _make_goal(script_path="train.py", trial=True),
+    )
+    dependencies = {action.id: action.depends_on for action in plan.actions}
+
+    assert dependencies[RUN_TRIAL_WORKSPACE] == [GENERATE_DIFF]
+    assert dependencies[SUMMARIZE_RESULTS][-1] == RUN_TRIAL_WORKSPACE
+
+
 def test_unsupported_goal_kind_returns_empty_plan_with_warning() -> None:
     goal = _make_goal(kind="compare_runs", script_path=None)
     plan = plan_for_goal(goal)
@@ -131,12 +159,13 @@ def _make_goal(
     goal_id: str = "goal_001",
     kind: str = "optimize_script",
     script_path: str | None = "train.py",
+    trial: bool = False,
 ) -> AgentGoal:
     return AgentGoal(
         id=goal_id,
         kind=kind,
         description="Optimize train.py for NVIDIA GPU performance",
         script_path=script_path,
-        options={"quick": True},
+        options={"quick": True, "trial": trial},
         constraints=["do_not_modify_original_file"],
     )

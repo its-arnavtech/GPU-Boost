@@ -8,6 +8,7 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
     create_agent_action,
@@ -17,6 +18,9 @@ from gpuboost.schemas.agent import AgentGoal, AgentPlan
 
 NO_SCRIPT_PATH_WARNING = (
     "No script_path provided; code analysis and patch planning actions were skipped."
+)
+TRIAL_REQUIRES_SCRIPT_PATH_WARNING = (
+    "Trial mode requires script_path; trial action was skipped."
 )
 
 
@@ -35,6 +39,8 @@ def create_optimize_script_plan(goal: AgentGoal) -> AgentPlan:
         ),
     ]
     warnings: list[str] = []
+
+    trial_requested = bool(goal.options.get("trial"))
 
     if goal.script_path:
         script_inputs = {"script_path": goal.script_path}
@@ -56,8 +62,22 @@ def create_optimize_script_plan(goal: AgentGoal) -> AgentPlan:
                 ),
             ],
         )
+        if trial_requested:
+            trial_inputs = dict(script_inputs)
+            test_command = goal.options.get("test_command")
+            if test_command is not None:
+                trial_inputs["test_command"] = test_command
+            actions.append(
+                create_agent_action(
+                    RUN_TRIAL_WORKSPACE,
+                    inputs=trial_inputs,
+                    depends_on=[GENERATE_DIFF],
+                )
+            )
     else:
         warnings.append(NO_SCRIPT_PATH_WARNING)
+        if trial_requested:
+            warnings.append(TRIAL_REQUIRES_SCRIPT_PATH_WARNING)
 
     prior_action_ids = [action.id for action in actions]
     actions.append(

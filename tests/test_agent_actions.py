@@ -9,6 +9,7 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
     ActionDefinition,
@@ -26,6 +27,7 @@ EXPECTED_ACTIONS = [
     ANALYZE_CODE,
     CREATE_PATCH_PLAN,
     GENERATE_DIFF,
+    RUN_TRIAL_WORKSPACE,
     SUMMARIZE_RESULTS,
 ]
 
@@ -49,6 +51,16 @@ def test_get_action_definition_returns_expected_metadata() -> None:
     assert definition.required is True
     assert definition.produces == ["benchmark_result"]
     assert definition.requires == ["gpu_profile"]
+    assert definition.safe_by_default is True
+
+
+def test_action_registry_includes_run_trial_workspace() -> None:
+    definition = get_action_definition(RUN_TRIAL_WORKSPACE)
+
+    assert definition is not None
+    assert definition.required is False
+    assert definition.produces == ["trial_result"]
+    assert definition.requires == ["patch_plan"]
     assert definition.safe_by_default is True
 
 

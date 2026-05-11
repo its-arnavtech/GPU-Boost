@@ -72,6 +72,15 @@ evidence-based optimization tool for CUDA and PyTorch development.
 - Defaults to the quick benchmark path, matching the current implemented agent
   action set, with `quick=True`
 
+### Phase 7: Safe Trial Workspace
+
+- Adds `gpuboost agent optimize train.py --trial`
+- Creates a temporary workspace and copies the target file into it
+- Applies generated patch suggestions only to the copied trial file
+- Runs a Python syntax check on the copied file without executing user code
+- Optionally runs an explicit user-provided test command with `--test`
+- Never modifies the original source file and does not provide `--apply`
+
 ## Install For Development
 
 ```bash
@@ -159,6 +168,9 @@ gpuboost agent optimize --json
 gpuboost agent optimize train.py
 gpuboost agent optimize train.py --json
 gpuboost agent optimize train.py --quick
+gpuboost agent optimize train.py --trial
+gpuboost agent optimize train.py --trial --json
+gpuboost agent optimize train.py --trial --test "pytest"
 ```
 
 Without a script path, the agent performs system-level optimization analysis:
@@ -172,8 +184,17 @@ With a script path, the agent also analyzes PyTorch code, creates a safe patch
 plan, and generates a reviewable unified diff when patchable findings exist.
 GPUBoost never applies patches automatically; diffs are review-only.
 
+With `--trial`, GPUBoost creates a temporary copy of the script, applies the
+generated patch plan only to that copy, runs syntax validation, and reports the
+trial result. The original source file is never modified.
+
+With `--trial --test "<command>"`, GPUBoost also runs the explicit command in
+the temporary trial workspace. Test commands may execute arbitrary user-provided
+code and never run unless `--test` is passed with `--trial`.
+
 JSON output uses schema version `agent.optimize.v1` and includes
-`schema_version`, `command`, `result`, `report`, and `artifacts.diff`.
+`schema_version`, `command`, `result`, `report`, `artifacts.diff`, and
+`artifacts.trial`.
 `quick=True` is the default. A `partial` status can occur when optional steps
 fail, such as missing script files.
 
@@ -190,6 +211,8 @@ Try the static analysis demo sample:
 ```bash
 gpuboost agent optimize examples/bad_train_sample.txt
 gpuboost agent optimize examples/bad_train_sample.txt --json
+gpuboost agent optimize examples/bad_train_sample.txt --trial
+gpuboost agent optimize examples/bad_train_sample.txt --trial --json
 ```
 
 The sample is intentionally kept as `.txt` so formatters and linters do not
@@ -214,13 +237,13 @@ gpuboost agent optimize --json
 gpuboost agent optimize train.py
 gpuboost agent optimize train.py --json
 gpuboost agent optimize train.py --quick
+gpuboost agent optimize train.py --trial
+gpuboost agent optimize train.py --trial --test "pytest"
 ```
 
 Planned commands, not yet implemented:
 
 ```bash
-gpuboost agent optimize train.py --trial
-gpuboost agent optimize train.py --trial --test "pytest"
 gpuboost agent compare baseline.json optimized.json
 gpuboost history list
 gpuboost history show <run_id>
@@ -230,9 +253,9 @@ gpuboost agent ask "Why is AMP slower on my machine?"
 ## Agentic AI Roadmap
 
 Phases 5-10 pivot GPUBoost from a benchmark and analysis CLI into an agentic AI
-production system. Phase 5 is implemented as a deterministic core, and Phase 6
-adds CLI access. Later phases will add trial workspaces, validation, history,
-and optional LLM explanations.
+production system. Phases 5-7 are implemented as deterministic local tooling.
+Later phases will add before/after validation, history, and optional LLM
+explanations.
 
 ### Phase 5: Agent Core - State, Actions, Planner, Executor
 
@@ -254,12 +277,12 @@ and optional LLM explanations.
 
 ### Phase 7: Safe Trial Workspace
 
-- Add `--trial`
-- Copy the target script into a temporary workspace
-- Apply patches only to the copy
-- Run syntax checks
-- Optionally run a user-provided test command
-- Never modify the original file
+- Implemented `--trial`
+- Copies the target script into a temporary workspace
+- Applies patches only to the copy
+- Runs syntax checks without executing user code
+- Optionally runs a user-provided test command
+- Never modifies the original file
 
 ### Phase 8: Before/After Validation and Comparison
 
@@ -319,7 +342,9 @@ Goal -> Planner -> Actions -> Executor -> State -> Validation -> Report -> Memor
 
 - GPUBoost never applies patches automatically by default.
 - Reviewable diffs are generated before changes.
-- Trial mode will apply patches only in temporary workspaces.
+- Trial mode applies patches only in temporary workspaces.
+- Syntax checks validate Python syntax without importing or running scripts.
+- Test commands are opt-in and may execute arbitrary user-provided code.
 - Measured benchmark data takes priority over AI-generated explanations.
 - The LLM layer is optional and cannot override deterministic metrics.
 - User code is not uploaded anywhere by default.
@@ -336,7 +361,7 @@ The test suite does not require an NVIDIA GPU.
 
 ## Not Included Yet
 
-- Trial workspace patch application
+- `--apply` or original source editing
 - Before/after benchmark comparison
 - Local run history database
 - Optional LLM explanation layer

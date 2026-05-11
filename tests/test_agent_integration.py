@@ -10,6 +10,7 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
 )
@@ -27,6 +28,7 @@ ALL_ACTIONS = {
     ANALYZE_CODE,
     CREATE_PATCH_PLAN,
     GENERATE_DIFF,
+    RUN_TRIAL_WORKSPACE,
     SUMMARIZE_RESULTS,
 }
 
@@ -173,6 +175,7 @@ def _fake_handlers(
             "code_finding_count": 1 if state.code_analysis else 0,
             "patch_suggestion_count": 1 if state.patch_plan else 0,
             "has_diff": bool(state.diff),
+            "has_trial_result": "trial_result" in state.metadata,
             "warning_count": len(state.warnings),
             "failed_action_count": len(state.failed_actions),
         }

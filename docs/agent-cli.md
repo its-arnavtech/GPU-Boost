@@ -8,6 +8,9 @@ gpuboost agent optimize --json
 gpuboost agent optimize train.py
 gpuboost agent optimize train.py --json
 gpuboost agent optimize train.py --quick
+gpuboost agent optimize train.py --trial
+gpuboost agent optimize train.py --trial --json
+gpuboost agent optimize train.py --trial --test "pytest"
 ```
 
 The current agent workflow defaults to `quick=True` because the implemented
@@ -31,11 +34,23 @@ With a script path, it also:
 - creates a safe patch plan
 - generates a reviewable unified diff when safe suggestions exist
 
+With `--trial`, it also:
+
+- creates a temporary trial workspace
+- copies the target file into that workspace
+- applies generated patch suggestions only to the copy
+- runs Python syntax validation without executing user code
+- optionally runs an explicit `--test` command in the trial workspace
+
+The original source file is never modified. GPUBoost does not implement
+`--apply`.
+
 The demo file `examples/bad_train_sample.txt` is intentionally kept as `.txt`
 so project linters do not treat it as Python:
 
 ```bash
 gpuboost agent optimize examples/bad_train_sample.txt
+gpuboost agent optimize examples/bad_train_sample.txt --trial
 ```
 
 ## Human Output
@@ -84,13 +99,18 @@ JSON output is valid JSON only and uses schema version `agent.optimize.v1`:
   "result": {},
   "report": {},
   "artifacts": {
-    "diff": null
+    "diff": null,
+    "trial": null
   }
 }
 ```
 
 When a reviewable diff exists, `artifacts.diff` contains the unified diff text.
 The same diff is also exposed in `result.artifacts.diff`.
+
+When trial mode is enabled, `artifacts.trial` contains a `TrialResult` with the
+workspace record, step list, patch status, syntax status, optional test command
+status, warnings, and `original_file_unchanged`.
 
 Unexpected workflow exceptions return valid JSON with `result` and `report`
 set to `null`:
@@ -102,7 +122,8 @@ set to `null`:
   "result": null,
   "report": null,
   "artifacts": {
-    "diff": null
+    "diff": null,
+    "trial": null
   },
   "error": "error message"
 }
@@ -110,9 +131,14 @@ set to `null`:
 
 ## Safety Model
 
-GPUBoost never applies patches automatically. Patch diffs are review-only.
-The agent does not edit source files, create trial workspaces, store history, or
-call an LLM in Phase 6.
+GPUBoost never applies patches to original files. Patch diffs are review-only.
+Trial mode applies patches only to a temporary copy. Syntax checks use Python
+compilation only and do not import or run the target script. A `--test` command
+is explicit opt-in and may execute arbitrary user-provided code in the trial
+workspace.
+
+Phase 7 implements the safe trial workspace. History, model/data pipelines, and
+LLM features are not implemented yet.
 
 ## Exit Codes
 
@@ -127,9 +153,10 @@ JSON preserves action statuses and errors in `result.plan.actions`.
 
 ## Current Limitations
 
-- No trial workspace yet
 - No auto-apply or `--apply`
 - No LLM layer yet
+- No history database yet
+- No model or data pipeline features yet
 - Quick benchmark only for now
 - Full benchmark agent mode is not implemented yet
 
@@ -142,4 +169,5 @@ JSON preserves action statuses and errors in `result.plan.actions`.
 - No auto-apply
 - Error/partial handling implemented
 - CPU-safe test coverage
-- Future: trial workspace, history, LLM explanations
+- Phase 7: trial workspace
+- Future: before/after validation, history, LLM explanations
