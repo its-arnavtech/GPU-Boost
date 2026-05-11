@@ -23,6 +23,11 @@ from gpuboost.schemas.code_analysis import (
     CodeAnalysisResult,
     CodeFinding,
 )
+from gpuboost.schemas.comparison import (
+    BenchmarkMetricDelta,
+    ComparisonResult,
+    ComparisonSection,
+)
 from gpuboost.schemas.patch_plan import (
     PatchEdit,
     PatchPlan,
@@ -46,10 +51,13 @@ __all__ = [
     "AgentRunResult",
     "AdvisorResult",
     "BenchmarkMetric",
+    "BenchmarkMetricDelta",
     "BenchmarkResult",
     "BenchmarkSuiteResult",
     "CodeAnalysisResult",
     "CodeFinding",
+    "ComparisonResult",
+    "ComparisonSection",
     "GPUBoostProfile",
     "GPUDeviceProfile",
     "PatchEdit",

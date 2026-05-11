@@ -15,11 +15,13 @@ from gpuboost.advisor.engine import generate_advisor_result
 from gpuboost.advisor.utils import format_speedup
 from gpuboost.benchmarks.runner import run_full_benchmark, run_quick_benchmark
 from gpuboost.code_analysis.runner import analyze_python_file
+from gpuboost.comparison.engine import compare_benchmarks
 from gpuboost.inspector.profile import collect_profile
 from gpuboost.patching.diff import generate_patch_plan_diff
 from gpuboost.patching.planner import create_patch_plan_from_analysis
 from gpuboost.schemas.agent import AgentRunResult
 from gpuboost.schemas.code_analysis import CodeAnalysisResult, CodeFinding
+from gpuboost.schemas.comparison import BenchmarkMetricDelta, ComparisonResult
 from gpuboost.schemas.recommendation import AdvisorResult
 from gpuboost.utils.formatting import format_benchmark_suite, format_profile
 
@@ -86,6 +88,24 @@ def build_parser() -> argparse.ArgumentParser:
         "--patch",
         action="store_true",
         help="Print review-only unified patch suggestions.",
+    )
+
+    compare_parser = subparsers.add_parser(
+        "compare",
+        help="Compare two GPUBoost benchmark JSON files.",
+    )
+    compare_parser.add_argument(
+        "baseline_json",
+        help="Baseline benchmark JSON file.",
+    )
+    compare_parser.add_argument(
+        "optimized_json",
+        help="Optimized benchmark JSON file.",
+    )
+    compare_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
     )
 
     agent_parser = subparsers.add_parser(
@@ -232,6 +252,42 @@ def main(argv: list[str] | None = None) -> int:
 
         return 0
 
+    if args.command == "compare":
+        try:
+            baseline = load_json_file(args.baseline_json)
+            optimized = load_json_file(args.optimized_json)
+        except (OSError, json.JSONDecodeError, ValueError) as error:
+            error_message = _format_json_file_error(error)
+            if args.json:
+                print(
+                    json.dumps(
+                        build_compare_error_payload(error_message),
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
+            else:
+                print(render_compare_error_human(error_message))
+            return 1
+
+        result = compare_benchmarks(
+            baseline=baseline,
+            optimized=optimized,
+            baseline_label=args.baseline_json,
+            optimized_label=args.optimized_json,
+        )
+        if args.json:
+            print(
+                json.dumps(
+                    build_compare_json_payload(result),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(render_comparison_human(result))
+        return comparison_status_to_exit_code(result.status)
+
     if args.command == "agent":
         if args.agent_command == "optimize":
             validation_error = _validate_agent_optimize_args(args)
@@ -302,6 +358,111 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.print_help()
     return 0
+
+
+def load_json_file(filepath: str) -> dict:
+    """Load a UTF-8 JSON object from disk."""
+
+    with Path(filepath).open(encoding="utf-8") as file:
+        data = json.load(file)
+
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected JSON object in file: {filepath}")
+    return data
+
+
+def build_compare_json_payload(result: ComparisonResult) -> dict[str, object]:
+    """Build the stable JSON payload for benchmark comparisons."""
+
+    return {
+        "schema_version": "comparison.v1",
+        "command": "compare",
+        "comparison": result.to_dict(),
+    }
+
+
+def build_compare_error_payload(message: str) -> dict[str, object]:
+    """Build the stable JSON payload for compare input errors."""
+
+    return {
+        "schema_version": "comparison.v1",
+        "command": "compare",
+        "comparison": None,
+        "error": message,
+    }
+
+
+def render_comparison_human(result: ComparisonResult) -> str:
+    """Render a concise human-readable benchmark comparison."""
+
+    lines = [
+        "GPUBoost Comparison",
+        f"Status: {result.status}",
+        f"Baseline: {result.baseline_label}",
+        f"Optimized: {result.optimized_label}",
+        f"Overall verdict: {result.overall_verdict}",
+    ]
+
+    for section in result.sections:
+        lines.extend(["", f"{section.title}:"])
+        if section.metrics:
+            lines.extend(
+                f"- {metric.name}: {_format_metric_delta_line(metric)}"
+                for metric in section.metrics
+            )
+        else:
+            lines.append("- no comparable metrics")
+
+    if result.warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in result.warnings)
+
+    if result.error:
+        lines.extend(["", "Error:", f"- {result.error}"])
+
+    return "\n".join(lines)
+
+
+def render_compare_error_human(error: str) -> str:
+    """Render a clean human-readable compare input error."""
+
+    return "\n".join(
+        [
+            "GPUBoost Comparison",
+            "Status: error",
+            "",
+            "Error:",
+            f"- {error}",
+        ]
+    )
+
+
+def comparison_status_to_exit_code(status: str) -> int:
+    """Return the CLI exit code for a comparison status."""
+
+    if status in {"ok", "partial"}:
+        return 0
+    return 1
+
+
+def _format_metric_delta_line(metric: BenchmarkMetricDelta) -> str:
+    unit_text = f" {metric.unit}" if metric.unit else ""
+    percent_text = ""
+    if metric.percent_delta is not None:
+        percent_text = f" ({metric.percent_delta:+.2f}%)"
+
+    return (
+        f"{metric.before} -> {metric.after}{unit_text}"
+        f"{percent_text} [{metric.direction}]"
+    )
+
+
+def _format_json_file_error(error: Exception) -> str:
+    if isinstance(error, FileNotFoundError):
+        return f"File not found: {error.filename}"
+    if isinstance(error, json.JSONDecodeError):
+        return f"Invalid JSON: {error.msg} at line {error.lineno} column {error.colno}"
+    return _format_exception_message(error)
 
 
 def _format_advisor_result(advisor_result: AdvisorResult) -> str:
@@ -445,6 +606,7 @@ def render_agent_report_human(
     warning_items = list(report.warnings)
     diff = _get_agent_diff_artifact(result)
     trial = _get_agent_trial_artifact(result)
+    comparison = _get_agent_comparison_artifact(result)
     error_items = [
         error
         for error in [result.error, report.error]
@@ -501,6 +663,9 @@ def render_agent_report_human(
     if trial_requested or trial is not None:
         lines.extend(["", _format_trial_output(trial)])
 
+    if comparison is not None:
+        lines.extend(["", _format_agent_comparison_output(comparison)])
+
     lines.extend(
         [
             "",
@@ -527,6 +692,7 @@ def build_agent_optimize_json_payload(
         "artifacts": {
             "diff": _get_agent_diff_artifact(result),
             "trial": _get_agent_trial_artifact(result),
+            "comparison": _get_agent_comparison_artifact(result),
         },
     }
 
@@ -542,6 +708,7 @@ def build_agent_optimize_error_json_payload(error: str) -> dict[str, object]:
         "artifacts": {
             "diff": None,
             "trial": None,
+            "comparison": None,
         },
         "error": error,
     }
@@ -599,6 +766,25 @@ def _get_agent_trial_artifact(result: AgentRunResult) -> dict[str, object] | Non
     if isinstance(trial, dict):
         return trial
     return None
+
+
+def _get_agent_comparison_artifact(
+    result: AgentRunResult,
+) -> dict[str, object] | None:
+    comparison = result.artifacts.get("comparison")
+    if isinstance(comparison, dict):
+        return comparison
+    return None
+
+
+def _format_agent_comparison_output(comparison: dict[str, object]) -> str:
+    return "\n".join(
+        [
+            "Comparison:",
+            f"- Status: {comparison.get('status') or 'unknown'}",
+            f"- Overall verdict: {comparison.get('overall_verdict') or 'unknown'}",
+        ]
+    )
 
 
 def _format_trial_output(trial: dict[str, object] | None) -> str:
