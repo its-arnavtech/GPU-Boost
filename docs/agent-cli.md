@@ -12,6 +12,9 @@ gpuboost agent optimize train.py --trial
 gpuboost agent optimize train.py --trial --json
 gpuboost agent optimize train.py --trial --test "pytest"
 gpuboost agent optimize train.py --save-history
+python -m gpuboost agent optimize --model
+python -m gpuboost agent optimize --model --json
+python -m gpuboost agent optimize .\examples\bad_train_sample.txt --model --trial --json
 ```
 
 The current agent workflow defaults to `quick=True` because the implemented
@@ -45,6 +48,11 @@ With `--trial`, it also:
 
 The original source file is never modified. GPUBoost does not implement
 `--apply`.
+
+With `--model`, it also routes safe summary features through the Phase 10
+local model interface. No trained GPUBoost model is included yet, no real model
+is loaded, and no external LLM APIs are used. Until a local provider is
+configured in a later phase, the workflow falls back to `NullModelProvider`.
 
 The demo file `examples/bad_train_sample.txt` is intentionally kept as `.txt`
 so project linters do not treat it as Python:
@@ -110,7 +118,8 @@ JSON output is valid JSON only and uses schema version `agent.optimize.v1`:
     "diff": null,
     "trial": null,
     "comparison": null,
-    "history_run_id": null
+    "history_run_id": null,
+    "model": null
   }
 }
 ```
@@ -125,6 +134,11 @@ status, warnings, and `original_file_unchanged`.
 When `--save-history` succeeds, `artifacts.history_run_id` contains the saved
 history run ID. Without `--save-history`, it is `null`.
 
+Without `--model`, `artifacts.model` is `null`. With `--model`, it contains a
+`ModelInferenceResult` dictionary. The current fallback result has
+`model_available: false`, `fallback_used: true`, `status: "fallback"`, and a
+warning that no local model provider is configured.
+
 Unexpected workflow exceptions return valid JSON with `result` and `report`
 set to `null`:
 
@@ -138,7 +152,8 @@ set to `null`:
     "diff": null,
     "trial": null,
     "comparison": null,
-    "history_run_id": null
+    "history_run_id": null,
+    "model": null
   },
   "error": "error message"
 }
@@ -153,7 +168,7 @@ is explicit opt-in and may execute arbitrary user-provided code in the trial
 workspace.
 
 Phase 7 implements the safe trial workspace. Phase 9 adds optional local
-history. Model/data pipelines and LLM features are not implemented yet.
+history. Phase 10 adds only the local model interface and fallback provider.
 
 `--save-history` stores a local SQLite history record under
 `~/.gpuboost/gpuboost.db` by default. It stores script path, script SHA256,
@@ -161,6 +176,15 @@ statuses, counts, warnings, and safe summaries. It does not store raw source
 code, raw diffs, trial stdout, or trial stderr by default. Use
 `--history-db-path` to point at a temporary database for development or tests.
 See [Local History](history.md).
+
+The model feature layer follows the same safety boundary: it uses safe
+summaries only and excludes raw source code, raw diffs, stdout, and stderr.
+The deterministic GPUBoost advisor and measured benchmark data remain the
+source of truth. The model layer may later rank, score, or predict confidence,
+but it cannot apply patches or override measured results. Phase 11 will add
+data collection and validation, Phase 12 will train and integrate GPUBoost's
+own model, and Phase 13 will test the full production system. See
+[Local Model Interface](model-interface.md).
 
 ## Exit Codes
 
@@ -176,8 +200,8 @@ JSON preserves action statuses and errors in `result.plan.actions`.
 ## Current Limitations
 
 - No auto-apply or `--apply`
-- No LLM layer yet
-- No model or data pipeline features yet
+- No external LLM APIs
+- No trained GPUBoost model yet
 - Quick benchmark only for now
 - Full benchmark agent mode is not implemented yet
 
@@ -193,4 +217,4 @@ JSON preserves action statuses and errors in `result.plan.actions`.
 - Phase 7: trial workspace
 - Phase 8: before/after comparison
 - Phase 9: optional local run history
-- Future: LLM explanations
+- Phase 10: local model interface with safe fallback

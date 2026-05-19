@@ -149,6 +149,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Validate generated patch suggestions in a temporary workspace.",
     )
     agent_optimize_parser.add_argument(
+        "--model",
+        action="store_true",
+        help="Include optional model inference metadata in the workflow result.",
+    )
+    agent_optimize_parser.add_argument(
         "--test",
         dest="test_command",
         help="Explicit test command to run inside the trial workspace.",
@@ -378,6 +383,7 @@ def main(argv: list[str] | None = None) -> int:
                 workflow_kwargs = {
                     "script_path": args.script_path,
                     "quick": args.quick,
+                    "model": args.model,
                 }
                 if args.trial:
                     workflow_kwargs["trial"] = True
@@ -948,6 +954,7 @@ def render_agent_report_human(
     warning_items = list(report.warnings)
     diff = _get_agent_diff_artifact(result)
     trial = _get_agent_trial_artifact(result)
+    model = _get_agent_model_artifact(result)
     comparison = _get_agent_comparison_artifact(result)
     error_items = [
         error
@@ -1005,6 +1012,9 @@ def render_agent_report_human(
     if trial_requested or trial is not None:
         lines.extend(["", _format_trial_output(trial)])
 
+    if model is not None:
+        lines.extend(["", _format_model_output(model)])
+
     if comparison is not None:
         lines.extend(["", _format_agent_comparison_output(comparison)])
 
@@ -1040,6 +1050,7 @@ def build_agent_optimize_json_payload(
             "trial": _get_agent_trial_artifact(result),
             "comparison": _get_agent_comparison_artifact(result),
             "history_run_id": _get_agent_history_run_id(result),
+            "model": _get_agent_model_artifact(result),
         },
     }
 
@@ -1057,6 +1068,7 @@ def build_agent_optimize_error_json_payload(error: str) -> dict[str, object]:
             "trial": None,
             "comparison": None,
             "history_run_id": None,
+            "model": None,
         },
         "error": error,
     }
@@ -1116,6 +1128,13 @@ def _get_agent_trial_artifact(result: AgentRunResult) -> dict[str, object] | Non
     return None
 
 
+def _get_agent_model_artifact(result: AgentRunResult) -> dict[str, object] | None:
+    model = result.artifacts.get("model")
+    if isinstance(model, dict):
+        return model
+    return None
+
+
 def _get_agent_comparison_artifact(
     result: AgentRunResult,
 ) -> dict[str, object] | None:
@@ -1138,6 +1157,27 @@ def _format_agent_comparison_output(comparison: dict[str, object]) -> str:
             "Comparison:",
             f"- Status: {comparison.get('status') or 'unknown'}",
             f"- Overall verdict: {comparison.get('overall_verdict') or 'unknown'}",
+        ]
+    )
+
+
+def _format_model_output(model: dict[str, object]) -> str:
+    model_name = model.get("model") or model.get("model_name") or model.get("name")
+    model_version = model.get("version") or model.get("model_version")
+    if model_name and model_version:
+        model_display = f"{model_name}/{model_version}"
+    elif model_name or model_version:
+        model_display = str(model_name or model_version)
+    else:
+        model_display = "none"
+
+    return "\n".join(
+        [
+            "Model:",
+            f"- Status: {model.get('status') or 'unknown'}",
+            f"- Available: {_format_yes_no(bool(model.get('model_available')))}",
+            f"- Fallback used: {_format_yes_no(bool(model.get('fallback_used')))}",
+            f"- Model: {model_display}",
         ]
     )
 
