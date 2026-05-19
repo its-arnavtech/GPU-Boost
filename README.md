@@ -13,7 +13,7 @@ inspect -> benchmark -> recommend -> analyze code -> generate reviewable patch d
 The planned agentic workflow is:
 
 ```text
-goal -> plan -> execute tools -> validate changes -> compare results -> remember run history -> explain results
+goal -> plan -> execute tools -> validate changes -> compare results -> remember run history -> local model interface
 ```
 
 GPUBoost is not affiliated with NVIDIA. It is designed as a local-first,
@@ -80,6 +80,17 @@ evidence-based optimization tool for CUDA and PyTorch development.
 - Runs a Python syntax check on the copied file without executing user code
 - Optionally runs an explicit user-provided test command with `--test`
 - Never modifies the original source file and does not provide `--apply`
+
+### Phase 10: Local Model Interface
+
+- Adds `gpuboost agent optimize --model`
+- Routes safe summary features through a local model provider interface
+- Includes `NullModelProvider` fallback when no provider is configured
+- Does not include a trained GPUBoost model yet
+- Does not call external LLM APIs, train a model, load a real model, collect
+  datasets, or export data
+- Keeps deterministic GPUBoost logic and measured benchmark data as the source
+  of truth
 
 ## Install For Development
 
@@ -172,6 +183,9 @@ gpuboost agent optimize train.py --trial
 gpuboost agent optimize train.py --trial --json
 gpuboost agent optimize train.py --trial --test "pytest"
 gpuboost agent optimize train.py --save-history
+python -m gpuboost agent optimize --model
+python -m gpuboost agent optimize --model --json
+python -m gpuboost agent optimize .\examples\bad_train_sample.txt --model --trial --json
 ```
 
 Without a script path, the agent performs system-level optimization analysis:
@@ -193,11 +207,17 @@ With `--trial --test "<command>"`, GPUBoost also runs the explicit command in
 the temporary trial workspace. Test commands may execute arbitrary user-provided
 code and never run unless `--test` is passed with `--trial`.
 
+With `--model`, GPUBoost runs the Phase 10 local model interface over safe
+feature summaries. Because no trained GPUBoost model is included yet, it falls
+back to `NullModelProvider` and reports `model_available: false`,
+`fallback_used: true`, and `status: "fallback"` in `artifacts.model`.
+
 JSON output uses schema version `agent.optimize.v1` and includes
 `schema_version`, `command`, `result`, `report`, `artifacts.diff`, and
 `artifacts.trial`. It also includes `artifacts.comparison`, currently `null`
-unless comparison data is attached, and `artifacts.history_run_id`, which is
-set only when `--save-history` succeeds.
+unless comparison data is attached, `artifacts.history_run_id`, which is set
+only when `--save-history` succeeds, and `artifacts.model`, which is `null`
+unless `--model` is used.
 `quick=True` is the default. A `partial` status can occur when optional steps
 fail, such as missing script files.
 
@@ -279,6 +299,9 @@ gpuboost agent optimize train.py --quick
 gpuboost agent optimize train.py --trial
 gpuboost agent optimize train.py --trial --test "pytest"
 gpuboost agent optimize train.py --save-history
+python -m gpuboost agent optimize --model
+python -m gpuboost agent optimize --model --json
+python -m gpuboost agent optimize .\examples\bad_train_sample.txt --model --trial --json
 gpuboost history list
 gpuboost history show <run_id>
 gpuboost history compare <left_run_id> <right_run_id>
@@ -295,8 +318,8 @@ gpuboost agent ask "Why is AMP slower on my machine?"
 
 Phases 5-10 pivot GPUBoost from a benchmark and analysis CLI into an agentic AI
 production system. Phases 5-7 are implemented as deterministic local tooling.
-Later phases will add before/after validation, history, and optional LLM
-explanations.
+Later phases add before/after validation, history, the local model interface,
+data validation, and GPUBoost's own model.
 
 ### Phase 5: Agent Core - State, Actions, Planner, Executor
 
@@ -343,26 +366,40 @@ explanations.
   `gpuboost history compare`
 - Keeps everything local and private by default
 
-### Phase 10: Optional LLM Explanation / Natural-Language Agent Layer
+### Phase 10: Local Model Interface / Model-Ready Agent Layer
 
-- Add an optional AI explanation layer
-- LLM can summarize, explain, answer questions, and generate human-readable
-  reports
-- LLM cannot invent metrics, override benchmark results, apply patches, or
-  modify files
-- Deterministic engine remains the source of truth
-- Tests use a stub provider, with no API key required
+- Adds local model schemas, safe feature extraction, provider interfaces, and
+  inference artifacts
+- `--model` routes through the local interface and falls back to
+  `NullModelProvider` unless a provider is configured later
+- No trained GPUBoost model is included yet
+- No external LLM APIs are used
+- No model training, real model loading, dataset export, or data collection is
+  implemented
+- Deterministic GPUBoost logic remains the source of truth
+- The model layer may later rank, score, or predict confidence, but cannot
+  apply patches or override measured benchmark data
+- Features are safe summaries only: no raw source code, raw diffs, stdout, or
+  stderr
 
-## Production Agent Testing Phase
+### Phase 11: Data Collection and Validation
 
-### Phase 11: Production Testing
+- Future phase for controlled data collection and validation
+- Not implemented in Phase 10
+
+### Phase 12: GPUBoost Model Training and Integration
+
+- Future phase to train and integrate GPUBoost's own model
+- Not implemented in Phase 10
+
+### Phase 13: Production System Testing
 
 - Agent unit tests
 - Agent integration tests
 - Trial workspace safety tests
 - Before/after comparison tests
 - History database tests
-- LLM safety tests with a stub provider
+- Model interface safety tests with stub providers
 - End-to-end CLI smoke tests
 - CPU-only CI compatibility
 - Guarantee original files are not modified by default
@@ -378,7 +415,7 @@ Inspector -> Benchmarks -> Advisor -> Code Analyzer -> Patch Planner -> Unified 
 Agentic architecture direction:
 
 ```text
-Goal -> Planner -> Actions -> Executor -> State -> Validation -> Report -> Memory -> Optional LLM Explanation
+Goal -> Planner -> Actions -> Executor -> State -> Validation -> Report -> Memory -> Local Model Interface
 ```
 
 ## Safety Principles
@@ -388,13 +425,15 @@ Goal -> Planner -> Actions -> Executor -> State -> Validation -> Report -> Memor
 - Trial mode applies patches only in temporary workspaces.
 - Syntax checks validate Python syntax without importing or running scripts.
 - Test commands are opt-in and may execute arbitrary user-provided code.
-- Measured benchmark data takes priority over AI-generated explanations.
-- The LLM layer is optional and cannot override deterministic metrics.
-- User code is not uploaded anywhere by default.
+- Measured benchmark data takes priority over model-generated signals.
+- The model layer is optional and cannot override deterministic metrics.
+- No external LLM APIs are used.
+- User code is not uploaded anywhere.
 - Local run history stays local unless the user explicitly exports or
   contributes data.
 - Local run history does not store raw source code, raw diffs, trial stdout, or
   trial stderr by default.
+- Model features do not store raw source code, raw diffs, stdout, or stderr.
 
 ## Run Tests
 
@@ -407,6 +446,10 @@ The test suite does not require an NVIDIA GPU.
 ## Not Included Yet
 
 - `--apply` or original source editing
-- Optional LLM explanation layer
+- A trained GPUBoost model
+- External LLM provider integrations
+- Phase 11 data collection and validation
+- Phase 12 model training
+- Phase 13 production-system testing
 - Dashboard code
 - Daemon code

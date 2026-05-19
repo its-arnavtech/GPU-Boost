@@ -8,6 +8,7 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_MODEL_INFERENCE,
     RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
@@ -41,6 +42,7 @@ def create_optimize_script_plan(goal: AgentGoal) -> AgentPlan:
     warnings: list[str] = []
 
     trial_requested = bool(goal.options.get("trial"))
+    model_requested = bool(goal.options.get("model"))
 
     if goal.script_path:
         script_inputs = {"script_path": goal.script_path}
@@ -78,6 +80,14 @@ def create_optimize_script_plan(goal: AgentGoal) -> AgentPlan:
         warnings.append(NO_SCRIPT_PATH_WARNING)
         if trial_requested:
             warnings.append(TRIAL_REQUIRES_SCRIPT_PATH_WARNING)
+
+    if model_requested:
+        actions.append(
+            create_agent_action(
+                RUN_MODEL_INFERENCE,
+                depends_on=[action.id for action in actions],
+            ),
+        )
 
     prior_action_ids = [action.id for action in actions]
     actions.append(

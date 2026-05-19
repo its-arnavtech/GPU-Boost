@@ -19,6 +19,13 @@ from gpuboost.schemas.history import (
     HistoryRunRecord,
     HistorySummary,
 )
+from gpuboost.schemas.model import (
+    ModelDecision,
+    ModelFeatureSet,
+    ModelInferenceResult,
+    ModelInput,
+    ModelPrediction,
+)
 from gpuboost.schemas.benchmark_result import (
     BenchmarkMetric,
     BenchmarkResult,
@@ -68,6 +75,11 @@ __all__ = [
     "HistoryCompareResult",
     "HistoryRunRecord",
     "HistorySummary",
+    "ModelDecision",
+    "ModelFeatureSet",
+    "ModelInferenceResult",
+    "ModelInput",
+    "ModelPrediction",
     "PatchEdit",
     "PatchPlan",
     "PatchSuggestion",

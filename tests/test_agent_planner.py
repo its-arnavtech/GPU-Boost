@@ -8,6 +8,7 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_MODEL_INFERENCE,
     RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
@@ -130,6 +131,46 @@ def test_summarize_results_depends_on_trial_action_when_included() -> None:
     assert dependencies[SUMMARIZE_RESULTS][-1] == RUN_TRIAL_WORKSPACE
 
 
+def test_planner_includes_model_action_only_when_requested() -> None:
+    default_plan = create_optimize_script_plan(_make_goal(script_path="train.py"))
+    model_plan = create_optimize_script_plan(
+        _make_goal(script_path="train.py", model=True),
+    )
+
+    assert [action.name for action in default_plan.actions] == ALL_OPTIMIZE_ACTIONS
+    assert RUN_MODEL_INFERENCE not in [action.name for action in default_plan.actions]
+    assert [action.name for action in model_plan.actions] == [
+        *ALL_OPTIMIZE_ACTIONS[:-1],
+        RUN_MODEL_INFERENCE,
+        SUMMARIZE_RESULTS,
+    ]
+
+
+def test_model_action_depends_on_prior_useful_actions_and_summary_depends_on_model(
+) -> None:
+    plan = create_optimize_script_plan(_make_goal(script_path="train.py", model=True))
+    dependencies = {action.id: action.depends_on for action in plan.actions}
+
+    assert dependencies[RUN_MODEL_INFERENCE] == ALL_OPTIMIZE_ACTIONS[:-1]
+    assert dependencies[SUMMARIZE_RESULTS][-1] == RUN_MODEL_INFERENCE
+
+
+def test_model_action_can_coexist_with_trial_action() -> None:
+    plan = create_optimize_script_plan(
+        _make_goal(script_path="train.py", trial=True, model=True),
+    )
+    action_names = [action.name for action in plan.actions]
+    dependencies = {action.id: action.depends_on for action in plan.actions}
+
+    assert RUN_TRIAL_WORKSPACE in action_names
+    assert action_names[-3:] == [
+        RUN_TRIAL_WORKSPACE,
+        RUN_MODEL_INFERENCE,
+        SUMMARIZE_RESULTS,
+    ]
+    assert dependencies[RUN_MODEL_INFERENCE][-1] == RUN_TRIAL_WORKSPACE
+
+
 def test_unsupported_goal_kind_returns_empty_plan_with_warning() -> None:
     goal = _make_goal(kind="compare_runs", script_path=None)
     plan = plan_for_goal(goal)
@@ -160,12 +201,13 @@ def _make_goal(
     kind: str = "optimize_script",
     script_path: str | None = "train.py",
     trial: bool = False,
+    model: bool = False,
 ) -> AgentGoal:
     return AgentGoal(
         id=goal_id,
         kind=kind,
         description="Optimize train.py for NVIDIA GPU performance",
         script_path=script_path,
-        options={"quick": True, "trial": trial},
+        options={"quick": True, "trial": trial, "model": model},
         constraints=["do_not_modify_original_file"],
     )

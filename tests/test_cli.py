@@ -328,8 +328,9 @@ def test_cli_agent_optimize_human_output_calls_workflow(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
-        calls.append({"script_path": script_path, "quick": quick})
+        calls.append({"script_path": script_path, "quick": quick, "model": model})
         return _fake_agent_result_and_report(script_path=script_path, quick=quick)
 
     monkeypatch.setattr(
@@ -342,7 +343,7 @@ def test_cli_agent_optimize_human_output_calls_workflow(
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert calls == [{"script_path": None, "quick": True}]
+    assert calls == [{"script_path": None, "quick": True, "model": False}]
     assert "GPUBoost Agent" in captured.out
     assert "Command: optimize" in captured.out
     assert "Status: ok" in captured.out
@@ -368,8 +369,9 @@ def test_cli_agent_optimize_passes_script_path(monkeypatch, capsys) -> None:
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
-        calls.append({"script_path": script_path, "quick": quick})
+        calls.append({"script_path": script_path, "quick": quick, "model": model})
         return _fake_agent_result_and_report(script_path=script_path, quick=quick)
 
     monkeypatch.setattr(
@@ -383,7 +385,7 @@ def test_cli_agent_optimize_passes_script_path(monkeypatch, capsys) -> None:
 
     assert exit_code == 0
     assert "Script: train.py" in captured.out
-    assert calls == [{"script_path": "train.py", "quick": True}]
+    assert calls == [{"script_path": "train.py", "quick": True, "model": False}]
     assert captured.err == ""
 
 
@@ -393,8 +395,9 @@ def test_cli_agent_optimize_passes_quick(monkeypatch, capsys) -> None:
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
-        calls.append({"script_path": script_path, "quick": quick})
+        calls.append({"script_path": script_path, "quick": quick, "model": model})
         return _fake_agent_result_and_report(script_path=script_path, quick=quick)
 
     monkeypatch.setattr(
@@ -407,7 +410,32 @@ def test_cli_agent_optimize_passes_quick(monkeypatch, capsys) -> None:
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert calls == [{"script_path": None, "quick": True}]
+    assert calls == [{"script_path": None, "quick": True, "model": False}]
+    assert captured.err == ""
+
+
+def test_cli_agent_optimize_model_flag_passes_model_true(monkeypatch, capsys) -> None:
+    calls = []
+
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        calls.append({"script_path": script_path, "quick": quick, "model": model})
+        return _fake_agent_result_and_report(script_path=script_path, quick=quick)
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py", "--model"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert calls == [{"script_path": "train.py", "quick": True, "model": True}]
     assert captured.err == ""
 
 
@@ -440,6 +468,7 @@ def test_cli_agent_optimize_human_output_includes_diff_when_present(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
             script_path=script_path,
@@ -488,6 +517,57 @@ def test_cli_agent_optimize_human_output_omits_diff_section_without_diff(
     assert captured.err == ""
 
 
+def test_cli_agent_optimize_human_output_shows_model_when_present(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        return _fake_agent_result_and_report(
+            script_path=script_path,
+            quick=quick,
+            model_artifact=_fake_model_artifact(),
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py", "--model"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Model:" in captured.out
+    assert "- Status: fallback" in captured.out
+    assert "- Available: no" in captured.out
+    assert "- Fallback used: yes" in captured.out
+    assert "- Model: none" in captured.out
+    assert captured.err == ""
+
+
+def test_cli_agent_optimize_human_output_omits_model_without_artifact(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        _fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Model:" not in captured.out
+    assert captured.err == ""
+
+
 def test_cli_agent_optimize_human_output_includes_comparison_when_present(
     monkeypatch,
     capsys,
@@ -495,6 +575,7 @@ def test_cli_agent_optimize_human_output_includes_comparison_when_present(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
             script_path=script_path,
@@ -528,6 +609,7 @@ def test_cli_agent_optimize_partial_human_output_includes_diff_when_present(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
             script_path=script_path,
@@ -559,6 +641,7 @@ def test_cli_agent_optimize_error_human_output_without_diff_omits_diff_section(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
             script_path=script_path,
@@ -610,6 +693,7 @@ def test_cli_agent_optimize_error_human_output_includes_error_section(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
             script_path=script_path,
@@ -640,6 +724,7 @@ def test_cli_agent_optimize_partial_human_output_includes_partial_status(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
             script_path=script_path,
@@ -670,6 +755,7 @@ def test_cli_agent_optimize_partial_human_output_surfaces_failed_action(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_missing_script_result_and_report(script_path, quick)
 
@@ -694,6 +780,7 @@ def test_cli_agent_optimize_final_smoke_matrix(monkeypatch, capsys) -> None:
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         diff = _FAKE_DIFF if script_path else None
         return _fake_agent_result_and_report(
@@ -754,6 +841,7 @@ def test_cli_agent_optimize_unexpected_exception_human_output_is_clean(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         raise RuntimeError("boom")
 
@@ -804,6 +892,7 @@ def test_cli_agent_optimize_json_outputs_result_and_report(
         "comparison": None,
         "diff": None,
         "history_run_id": None,
+        "model": None,
         "trial": None,
     }
     assert data["result"]["status"] == "ok"
@@ -848,6 +937,7 @@ def test_cli_agent_optimize_json_includes_diff_artifact_when_present(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
             script_path=script_path,
@@ -889,6 +979,61 @@ def test_cli_agent_optimize_json_includes_null_diff_without_artifact(
     assert exit_code == 0
     assert data["artifacts"]["diff"] is None
     assert data["result"]["artifacts"]["diff"] is None
+    assert captured.err == ""
+
+
+def test_cli_agent_optimize_json_without_model_includes_null_model(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        _fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["artifacts"]["model"] is None
+    assert captured.err == ""
+
+
+def test_cli_agent_optimize_json_with_model_includes_model_artifact(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        assert model is True
+        return _fake_agent_result_and_report(
+            script_path=script_path,
+            quick=quick,
+            model_artifact=_fake_model_artifact(),
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py", "--model", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["artifacts"]["model"] == _fake_model_artifact()
+    assert data["artifacts"]["diff"] is None
+    assert data["artifacts"]["trial"] is None
+    assert data["artifacts"]["comparison"] is None
+    assert data["artifacts"]["history_run_id"] is None
+    assert "Model:" not in captured.out
     assert captured.err == ""
 
 
@@ -969,6 +1114,7 @@ def test_cli_agent_optimize_exits_nonzero_when_result_status_is_error(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
             script_path=script_path,
@@ -1008,6 +1154,7 @@ def test_cli_agent_optimize_unexpected_exception_json_output_is_valid(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         raise RuntimeError("workflow exploded")
 
@@ -1038,6 +1185,7 @@ def test_cli_agent_optimize_unexpected_exception_json_output_is_valid(
         "comparison": None,
         "diff": None,
         "history_run_id": None,
+        "model": None,
         "trial": None,
     }
     assert data["error"] == "workflow exploded"
@@ -1076,6 +1224,7 @@ def test_cli_agent_optimize_partial_json_keeps_stable_shape(
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
             script_path=script_path,
@@ -1126,6 +1275,7 @@ def test_build_agent_optimize_json_payload_returns_stable_dict() -> None:
         "comparison": None,
         "diff": None,
         "history_run_id": None,
+        "model": None,
         "trial": None,
     }
     assert payload["result"]["goal"]["script_path"] == "train.py"
@@ -1159,9 +1309,12 @@ def test_cli_trial_passes_trial_true_to_workflow(monkeypatch, capsys) -> None:
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
         trial: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
-        calls.append({"script_path": script_path, "quick": quick, "trial": trial})
+        calls.append(
+            {"script_path": script_path, "quick": quick, "model": model, "trial": trial}
+        )
         return _fake_agent_result_and_report(script_path=script_path, quick=quick)
 
     monkeypatch.setattr(
@@ -1174,7 +1327,35 @@ def test_cli_trial_passes_trial_true_to_workflow(monkeypatch, capsys) -> None:
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert calls == [{"script_path": "train.py", "quick": True, "trial": True}]
+    assert calls == [
+        {"script_path": "train.py", "quick": True, "model": False, "trial": True}
+    ]
+    assert captured.err == ""
+
+
+def test_cli_model_works_with_trial_argument_parsing(monkeypatch, capsys) -> None:
+    calls = []
+
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+        trial: bool = False,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        calls.append({"script_path": script_path, "model": model, "trial": trial})
+        return _fake_agent_result_and_report(script_path=script_path, quick=quick)
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(["agent", "optimize", "train.py", "--model", "--trial"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert calls == [{"script_path": "train.py", "model": True, "trial": True}]
     assert captured.err == ""
 
 
@@ -1193,6 +1374,7 @@ def test_cli_trial_human_output_includes_trial_section(monkeypatch, capsys) -> N
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
         trial: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
@@ -1225,6 +1407,7 @@ def test_cli_trial_json_includes_artifacts_trial(monkeypatch, capsys) -> None:
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
         trial: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
@@ -1269,6 +1452,7 @@ def test_cli_trial_failure_result_still_valid_json(monkeypatch, capsys) -> None:
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
         trial: bool = False,
     ) -> tuple[AgentRunResult, AgentReport]:
         return _fake_agent_result_and_report(
@@ -1307,6 +1491,7 @@ def test_cli_test_with_trial_passes_test_command(monkeypatch, capsys) -> None:
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
         trial: bool = False,
         test_command: str | None = None,
     ) -> tuple[AgentRunResult, AgentReport]:
@@ -1350,6 +1535,7 @@ def test_cli_test_with_trial_json_includes_test_command(monkeypatch, capsys) -> 
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
         trial: bool = False,
         test_command: str | None = None,
     ) -> tuple[AgentRunResult, AgentReport]:
@@ -1393,6 +1579,7 @@ def test_cli_test_human_output_displays_test_command(monkeypatch, capsys) -> Non
     def fake_run_optimize_script_workflow(
         script_path: str | None = None,
         quick: bool = True,
+        model: bool = False,
         trial: bool = False,
         test_command: str | None = None,
     ) -> tuple[AgentRunResult, AgentReport]:
@@ -1884,6 +2071,7 @@ def test_cli_agent_optimize_history_db_path_without_save_history_is_accepted(
 def _fake_run_optimize_script_workflow(
     script_path: str | None = None,
     quick: bool = True,
+    model: bool = False,
 ) -> tuple[AgentRunResult, AgentReport]:
     return _fake_agent_result_and_report(script_path=script_path, quick=quick)
 
@@ -1951,7 +2139,13 @@ def _fake_missing_script_result_and_report(
         plan=plan,
         status="partial",
         warnings=["Skipped because dependency failed: analyze_code"],
-        artifacts={"diff": None, "trial": None},
+        artifacts={
+            "diff": None,
+            "trial": None,
+            "comparison": None,
+            "history_run_id": None,
+            "model": None,
+        },
     )
     report = AgentReport(
         title="GPUBoost Agent Report",
@@ -1981,6 +2175,7 @@ def _fake_agent_result_and_report(
     status: str = "ok",
     diff: str | None = None,
     trial_artifact: dict[str, object] | None = None,
+    model_artifact: dict[str, object] | None = None,
     comparison_artifact: dict[str, object] | None = None,
 ) -> tuple[AgentRunResult, AgentReport]:
     goal = AgentGoal(
@@ -2026,6 +2221,8 @@ def _fake_agent_result_and_report(
             "diff": diff,
             "trial": trial_artifact,
             "comparison": comparison_artifact,
+            "history_run_id": None,
+            "model": model_artifact,
         },
     )
     script_display = script_path if script_path is not None else "none"
@@ -2109,6 +2306,16 @@ def _fake_trial_artifact(
         "original_file_unchanged": True,
         "warnings": [],
         "error": error,
+    }
+
+
+def _fake_model_artifact() -> dict[str, object]:
+    return {
+        "model_available": False,
+        "fallback_used": True,
+        "status": "fallback",
+        "model": None,
+        "version": None,
     }
 
 

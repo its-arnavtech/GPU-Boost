@@ -14,6 +14,7 @@ ANALYZE_CODE = "analyze_code"
 CREATE_PATCH_PLAN = "create_patch_plan"
 GENERATE_DIFF = "generate_diff"
 RUN_TRIAL_WORKSPACE = "run_trial_workspace"
+RUN_MODEL_INFERENCE = "run_model_inference"
 SUMMARIZE_RESULTS = "summarize_results"
 
 ACTION_ORDER = (
@@ -24,6 +25,7 @@ ACTION_ORDER = (
     CREATE_PATCH_PLAN,
     GENERATE_DIFF,
     RUN_TRIAL_WORKSPACE,
+    RUN_MODEL_INFERENCE,
     SUMMARIZE_RESULTS,
 )
 
@@ -97,6 +99,14 @@ ACTION_REGISTRY: dict[str, ActionDefinition] = {
         required=False,
         produces=["trial_result"],
         requires=["patch_plan"],
+        safe_by_default=True,
+    ),
+    RUN_MODEL_INFERENCE: ActionDefinition(
+        name=RUN_MODEL_INFERENCE,
+        description="Run local model inference over safe GPUBoost features.",
+        required=False,
+        produces=["model_result"],
+        requires=["agent_state"],
         safe_by_default=True,
     ),
     SUMMARIZE_RESULTS: ActionDefinition(

@@ -12,6 +12,7 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_MODEL_INFERENCE,
     RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
@@ -20,6 +21,7 @@ from gpuboost.agent.state import AgentState
 from gpuboost.benchmarks import runner as benchmark_runner
 from gpuboost.code_analysis import runner as code_analysis_runner
 from gpuboost.inspector import profile as profile_module
+from gpuboost.model import inference as model_inference
 from gpuboost.patching import diff as patch_diff
 from gpuboost.patching import planner as patch_planner
 from gpuboost.schemas.agent import AgentAction
@@ -181,6 +183,28 @@ def handle_run_trial_workspace(state: AgentState, action: AgentAction) -> None:
         raise ValueError(trial_result.error or "Trial workspace validation failed.")
 
 
+def handle_run_model_inference(state: AgentState, action: AgentAction) -> None:
+    """Run optional local model inference over safe agent artifacts."""
+
+    provider = state.metadata.get("_model_provider")
+    result = model_inference.run_model_inference(state, provider=provider)
+    state.metadata["_model_result"] = result
+    state.metadata["model_result"] = result.to_dict()
+    _add_warnings(state, result.warnings, action.id)
+    state.add_event(
+        level="info",
+        message=f"Model inference completed with status: {result.status}.",
+        action_id=action.id,
+        data={
+            "fallback_used": result.fallback_used,
+            "status": result.status,
+        },
+    )
+
+    if result.status == "error" and not result.fallback_used:
+        raise ValueError(result.error or "Model inference failed.")
+
+
 def handle_summarize_results(state: AgentState, action: AgentAction) -> None:
     """Store a lightweight summary of collected agent artifacts."""
 
@@ -198,6 +222,7 @@ def handle_summarize_results(state: AgentState, action: AgentAction) -> None:
         ),
         "has_diff": bool(state.diff),
         "has_trial_result": "trial_result" in state.metadata,
+        "has_model_result": "model_result" in state.metadata,
         "warning_count": len(state.warnings),
         "failed_action_count": len(state.failed_actions),
     }
@@ -219,6 +244,7 @@ def default_handlers() -> dict[str, "ActionHandler"]:
         CREATE_PATCH_PLAN: handle_create_patch_plan,
         GENERATE_DIFF: handle_generate_diff,
         RUN_TRIAL_WORKSPACE: handle_run_trial_workspace,
+        RUN_MODEL_INFERENCE: handle_run_model_inference,
         SUMMARIZE_RESULTS: handle_summarize_results,
     }
 

@@ -9,6 +9,7 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_MODEL_INFERENCE,
     RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
@@ -28,6 +29,7 @@ EXPECTED_ACTIONS = [
     CREATE_PATCH_PLAN,
     GENERATE_DIFF,
     RUN_TRIAL_WORKSPACE,
+    RUN_MODEL_INFERENCE,
     SUMMARIZE_RESULTS,
 ]
 
@@ -61,6 +63,17 @@ def test_action_registry_includes_run_trial_workspace() -> None:
     assert definition.required is False
     assert definition.produces == ["trial_result"]
     assert definition.requires == ["patch_plan"]
+    assert definition.safe_by_default is True
+
+
+def test_action_registry_includes_run_model_inference() -> None:
+    definition = get_action_definition(RUN_MODEL_INFERENCE)
+
+    assert definition is not None
+    assert definition.description == "Run local model inference over safe GPUBoost features."
+    assert definition.required is False
+    assert definition.produces == ["model_result"]
+    assert definition.requires == ["agent_state"]
     assert definition.safe_by_default is True
 
 

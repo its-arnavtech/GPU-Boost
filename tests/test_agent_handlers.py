@@ -13,12 +13,15 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_MODEL_INFERENCE,
     RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
 )
 from gpuboost.agent.state import AgentState
+from gpuboost.model.provider import FALLBACK_WARNING
 from gpuboost.schemas.agent import AgentAction, AgentGoal
+from gpuboost.schemas.model import ModelInferenceResult, ModelPrediction
 from gpuboost.schemas.trial import TrialResult
 
 
@@ -267,6 +270,7 @@ def test_summarize_results_produces_correct_counts() -> None:
         "patch_suggestion_count": 1,
         "has_diff": True,
         "has_trial_result": False,
+        "has_model_result": False,
         "warning_count": 2,
         "failed_action_count": 1,
     }
@@ -284,6 +288,7 @@ def test_default_handlers_contains_all_action_names() -> None:
         CREATE_PATCH_PLAN,
         GENERATE_DIFF,
         RUN_TRIAL_WORKSPACE,
+        RUN_MODEL_INFERENCE,
         SUMMARIZE_RESULTS,
     }
 
@@ -342,6 +347,76 @@ def test_run_trial_workspace_handler_raises_on_failed_result(monkeypatch) -> Non
 
     with pytest.raises(ValueError, match="trial failed"):
         handlers.handle_run_trial_workspace(state, _make_action(RUN_TRIAL_WORKSPACE))
+
+
+def test_run_model_inference_handler_stores_model_result(monkeypatch) -> None:
+    result = ModelInferenceResult(
+        status="ok",
+        model_available=True,
+        model_name="fake-local",
+        predictions=[
+            ModelPrediction(
+                id="prediction_001",
+                target="batch_size",
+                label="increase",
+                score=0.8,
+                confidence=0.7,
+                rationale="Synthetic test prediction.",
+            ),
+        ],
+        warnings=["model warning"],
+    )
+    captured: dict[str, object] = {}
+
+    def fake_run_model_inference(state: AgentState, provider: object | None = None):
+        captured["state"] = state
+        captured["provider"] = provider
+        return result
+
+    monkeypatch.setattr(
+        handlers.model_inference,
+        "run_model_inference",
+        fake_run_model_inference,
+    )
+    provider = object()
+    state = _make_state()
+    state.metadata["_model_provider"] = provider
+
+    handlers.handle_run_model_inference(state, _make_action(RUN_MODEL_INFERENCE))
+
+    assert captured == {"state": state, "provider": provider}
+    assert state.metadata["_model_result"] is result
+    assert state.metadata["model_result"] == result.to_dict()
+    assert state.warnings == ["model warning"]
+    assert state.events[-1].message == "Model inference completed with status: ok."
+
+
+def test_run_model_inference_handler_uses_fallback_provider_safely() -> None:
+    state = _make_state()
+
+    handlers.handle_run_model_inference(state, _make_action(RUN_MODEL_INFERENCE))
+
+    assert state.metadata["model_result"]["status"] == "fallback"
+    assert state.metadata["model_result"]["fallback_used"] is True
+    assert state.warnings == [FALLBACK_WARNING]
+
+
+def test_run_model_inference_handler_raises_for_provider_error(monkeypatch) -> None:
+    result = ModelInferenceResult(
+        status="error",
+        fallback_used=False,
+        error="provider unavailable",
+    )
+    monkeypatch.setattr(
+        handlers.model_inference,
+        "run_model_inference",
+        lambda state, provider=None: result,
+    )
+    state = _make_state()
+    state.metadata["_model_provider"] = object()
+
+    with pytest.raises(ValueError, match="provider unavailable"):
+        handlers.handle_run_model_inference(state, _make_action(RUN_MODEL_INFERENCE))
 
 
 def test_handlers_do_not_apply_patches_or_write_files(monkeypatch, tmp_path) -> None:

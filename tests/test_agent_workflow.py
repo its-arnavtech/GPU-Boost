@@ -10,15 +10,18 @@ from gpuboost.agent.actions import (
     GENERATE_DIFF,
     GENERATE_RECOMMENDATIONS,
     INSPECT_SYSTEM,
+    RUN_MODEL_INFERENCE,
     RUN_TRIAL_WORKSPACE,
     RUN_QUICK_BENCHMARK,
     SUMMARIZE_RESULTS,
 )
+from gpuboost.agent.handlers import handle_run_model_inference
 from gpuboost.agent.state import AgentState
 from gpuboost.agent.workflow import (
     create_optimize_script_goal,
     run_optimize_script_workflow,
 )
+from gpuboost.model.provider import FailingModelProvider, FALLBACK_WARNING
 from gpuboost.history.store import load_history_run
 from gpuboost.schemas.agent import AgentAction, AgentRunResult
 
@@ -37,6 +40,7 @@ def test_create_optimize_script_goal_with_script_path() -> None:
     assert goal.options == {
         "quick": False,
         "trial": False,
+        "model": False,
         "test_command": None,
     }
 
@@ -52,6 +56,7 @@ def test_create_optimize_script_goal_without_script_path() -> None:
     assert goal.options == {
         "quick": True,
         "trial": False,
+        "model": False,
         "test_command": None,
     }
 
@@ -87,8 +92,94 @@ def test_run_optimize_script_workflow_defaults_quick_true() -> None:
     assert result.goal.options == {
         "quick": True,
         "trial": False,
+        "model": False,
         "test_command": None,
     }
+
+
+def test_workflow_passes_model_option_into_goal() -> None:
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(include_model=True),
+        model=True,
+    )
+
+    assert result.goal.options["model"] is True
+    assert RUN_MODEL_INFERENCE in [action.name for action in result.plan.actions]
+    assert result.artifacts["model"] == {"status": "fallback"}
+
+
+def test_workflow_artifacts_include_null_model_by_default() -> None:
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(),
+    )
+
+    assert result.artifacts == {
+        "diff": "--- train.py\n+++ train.py\n-value = 1\n+value = 2",
+        "trial": None,
+        "comparison": None,
+        "history_run_id": None,
+        "model": None,
+    }
+
+
+def test_workflow_model_uses_null_provider_fallback() -> None:
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(include_real_model=True),
+        model=True,
+    )
+
+    model = result.artifacts["model"]
+    assert model["model_available"] is False
+    assert model["fallback_used"] is True
+    assert model["status"] == "fallback"
+    assert model["warnings"] == [FALLBACK_WARNING]
+
+
+def test_workflow_model_and_trial_artifacts_can_coexist() -> None:
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(include_real_model=True),
+        trial=True,
+        model=True,
+    )
+
+    assert result.artifacts["trial"]["status"] == "passed"
+    assert result.artifacts["model"]["status"] == "fallback"
+
+
+def test_workflow_model_and_history_artifacts_can_coexist(tmp_path) -> None:
+    db_path = tmp_path / "history.db"
+
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(include_real_model=True),
+        model=True,
+        save_history=True,
+        history_db_path=str(db_path),
+    )
+
+    assert isinstance(result.artifacts["history_run_id"], str)
+    assert result.artifacts["history_run_id"]
+    assert result.artifacts["model"]["status"] == "fallback"
+
+
+def test_workflow_model_provider_failure_does_not_crash() -> None:
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(
+            include_real_model=True,
+            model_provider=FailingModelProvider("provider boom"),
+        ),
+        model=True,
+    )
+
+    assert result.status == "ok"
+    assert result.artifacts["model"]["fallback_used"] is True
+    assert result.artifacts["model"]["status"] == "fallback"
+    assert result.artifacts["model"]["error"] == "provider boom"
 
 
 def test_workflow_passes_trial_and_test_command_options() -> None:
@@ -170,7 +261,7 @@ def test_workflow_save_history_false_does_not_create_db(tmp_path) -> None:
 
     assert result.status == "ok"
     assert not db_path.exists()
-    assert "history_run_id" not in result.artifacts
+    assert result.artifacts["history_run_id"] is None
 
 
 def test_workflow_save_history_true_creates_db_and_stores_run(tmp_path) -> None:
@@ -228,7 +319,7 @@ def test_workflow_history_save_failure_warns_without_failing(
 
     assert result.status == "ok"
     assert report.status == "ok"
-    assert "history_run_id" not in result.artifacts
+    assert result.artifacts["history_run_id"] is None
     assert result.warnings[-1] == "Failed to save history: database unavailable"
 
 
@@ -298,6 +389,9 @@ def _fake_handlers(
     *,
     source_path: Path | None = None,
     marker: dict[str, bool] | None = None,
+    include_model: bool = False,
+    include_real_model: bool = False,
+    model_provider: object | None = None,
 ) -> dict[str, object]:
     def mark(name: str) -> None:
         if marker is not None:
@@ -337,6 +431,16 @@ def _fake_handlers(
         mark(GENERATE_DIFF)
         state.diff = "--- train.py\n+++ train.py\n-value = 1\n+value = 2"
 
+    def run_trial_workspace(state: AgentState, action: AgentAction) -> None:
+        mark(RUN_TRIAL_WORKSPACE)
+        state.metadata["trial_result"] = {
+            "status": "passed",
+            "patch_applied": True,
+            "syntax_check_status": "passed",
+            "test_status": "skipped",
+            "original_file_unchanged": True,
+        }
+
     def summarize_results(state: AgentState, action: AgentAction) -> None:
         mark(SUMMARIZE_RESULTS)
         state.metadata["summary"] = {
@@ -347,19 +451,42 @@ def _fake_handlers(
             "patch_suggestion_count": 1 if state.patch_plan else 0,
             "has_diff": bool(state.diff),
             "has_trial_result": "trial_result" in state.metadata,
+            "has_model_result": "model_result" in state.metadata,
             "warning_count": len(state.warnings),
             "failed_action_count": len(state.failed_actions),
         }
 
-    return {
+    handlers = {
         INSPECT_SYSTEM: inspect_system,
         RUN_QUICK_BENCHMARK: run_quick_benchmark,
         GENERATE_RECOMMENDATIONS: generate_recommendations,
         ANALYZE_CODE: analyze_code,
         CREATE_PATCH_PLAN: create_patch_plan,
         GENERATE_DIFF: generate_diff,
+        RUN_TRIAL_WORKSPACE: run_trial_workspace,
         SUMMARIZE_RESULTS: summarize_results,
     }
+    if include_model:
+        def run_model_inference(
+            state: AgentState,
+            action: AgentAction,
+        ) -> None:
+            mark(RUN_MODEL_INFERENCE)
+            state.metadata["model_result"] = {"status": "fallback"}
+
+        handlers[RUN_MODEL_INFERENCE] = run_model_inference
+    if include_real_model:
+        def run_real_model_inference(
+            state: AgentState,
+            action: AgentAction,
+        ) -> None:
+            mark(RUN_MODEL_INFERENCE)
+            if model_provider is not None:
+                state.metadata["_model_provider"] = model_provider
+            handle_run_model_inference(state, action)
+
+        handlers[RUN_MODEL_INFERENCE] = run_real_model_inference
+    return handlers
 
 
 def _raise(message: str):

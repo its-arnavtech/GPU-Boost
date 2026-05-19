@@ -94,6 +94,9 @@ class AgentExecutor:
             artifacts={
                 "diff": state.diff,
                 "trial": state.metadata.get("trial_result"),
+                "comparison": state.metadata.get("comparison_result"),
+                "history_run_id": None,
+                "model": state.metadata.get("model_result"),
             },
         )
 
