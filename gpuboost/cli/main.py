@@ -16,6 +16,10 @@ from gpuboost.advisor.utils import format_speedup
 from gpuboost.benchmarks.runner import run_full_benchmark, run_quick_benchmark
 from gpuboost.code_analysis.runner import analyze_python_file
 from gpuboost.comparison.engine import compare_benchmarks
+from gpuboost.dataset.outcome_collection import (
+    OUTCOME_COLLECTION_SCHEMA_VERSION,
+    collect_outcomes_from_pairs_file,
+)
 from gpuboost.history.compare import compare_history_runs
 from gpuboost.history.store import list_history_runs, load_history_run
 from gpuboost.inspector.profile import collect_profile
@@ -217,6 +221,31 @@ def build_parser() -> argparse.ArgumentParser:
     history_compare_parser.add_argument(
         "--db-path",
         help="Optional history database path for development and testing.",
+    )
+
+    dataset_parser = subparsers.add_parser(
+        "dataset",
+        help="Run local dataset workflows.",
+    )
+    dataset_subparsers = dataset_parser.add_subparsers(dest="dataset_command")
+
+    collect_outcomes_parser = dataset_subparsers.add_parser(
+        "collect-outcomes",
+        help="Collect labeled outcome rows from benchmark JSON pairs.",
+    )
+    collect_outcomes_parser.add_argument(
+        "pairs_json",
+        help="Local JSON file describing baseline/optimized benchmark pairs.",
+    )
+    collect_outcomes_parser.add_argument(
+        "--output-dir",
+        default="data/gpuboost/generated/outcomes",
+        help="Directory for outcome dataset and reports.",
+    )
+    collect_outcomes_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
     )
 
     return parser
@@ -444,6 +473,13 @@ def main(argv: list[str] | None = None) -> int:
         print("GPUBoost History\nAvailable commands: list, show, compare")
         return 0
 
+    if args.command == "dataset":
+        if args.dataset_command == "collect-outcomes":
+            return _run_dataset_collect_outcomes(args)
+
+        print("GPUBoost Dataset\nAvailable commands: collect-outcomes")
+        return 0
+
     parser.print_help()
     return 0
 
@@ -457,6 +493,39 @@ def load_json_file(filepath: str) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"Expected JSON object in file: {filepath}")
     return data
+
+
+def _run_dataset_collect_outcomes(args: argparse.Namespace) -> int:
+    try:
+        summary = collect_outcomes_from_pairs_file(
+            pairs_file=args.pairs_json,
+            output_dir=args.output_dir,
+        )
+    except (OSError, ValueError) as error:
+        error_message = _format_exception_message(error)
+        if args.json:
+            print(
+                json.dumps(
+                    build_dataset_collect_outcomes_error_payload(error_message),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(render_dataset_collect_outcomes_error_human(error_message))
+        return 1
+
+    if args.json:
+        print(
+            json.dumps(
+                build_dataset_collect_outcomes_json_payload(summary),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_dataset_collect_outcomes_human(summary))
+    return 0
 
 
 def _run_history_list(args: argparse.Namespace) -> int:
@@ -620,6 +689,84 @@ def build_history_compare_error_payload(error: str) -> dict[str, object]:
         "comparison": None,
         "error": error,
     }
+
+
+def build_dataset_collect_outcomes_json_payload(
+    summary: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": OUTCOME_COLLECTION_SCHEMA_VERSION,
+        "command": "dataset collect-outcomes",
+        "result": summary,
+    }
+
+
+def build_dataset_collect_outcomes_error_payload(error: str) -> dict[str, object]:
+    return {
+        "schema_version": OUTCOME_COLLECTION_SCHEMA_VERSION,
+        "command": "dataset collect-outcomes",
+        "result": None,
+        "error": error,
+    }
+
+
+def render_dataset_collect_outcomes_human(summary: dict[str, object]) -> str:
+    lines = [
+        "GPUBoost Outcome Collection",
+        f"Pairs: {summary['pair_count']}",
+        f"Collected rows: {summary['collected_row_count']}",
+        f"Validation: {summary['validation_status']}",
+        "",
+        "Labels:",
+    ]
+    label_counts = summary.get("label_counts")
+    if isinstance(label_counts, dict) and label_counts:
+        for label in ("improved", "regressed", "neutral", "failed", "unknown"):
+            lines.append(f"- {label}: {label_counts.get(label, 0)}")
+    else:
+        lines.append("- none")
+
+    output_files = summary.get("output_files")
+    lines.extend(["", "Output:"])
+    if isinstance(output_files, dict):
+        for key, value in output_files.items():
+            if value:
+                lines.append(f"- {key}: {value}")
+    else:
+        lines.append("- none")
+
+    errors = summary.get("errors")
+    if isinstance(errors, list) and errors:
+        lines.extend(["", "Errors:"])
+        for error in errors:
+            if isinstance(error, dict):
+                lines.append(
+                    "- "
+                    f"pair_index={error.get('pair_index')} "
+                    f"row_id={error.get('row_id') or 'none'} "
+                    f"error={error.get('error')}"
+                )
+            else:
+                lines.append(f"- {error}")
+
+    warnings = summary.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in warnings)
+
+    return "\n".join(lines)
+
+
+def render_dataset_collect_outcomes_error_human(error: str) -> str:
+    return "\n".join(
+        [
+            "GPUBoost Outcome Collection",
+            "Status: error",
+            "",
+            "Error:",
+            f"- {error}",
+        ]
+    )
 
 
 def render_history_list_human(history: HistorySummary) -> str:

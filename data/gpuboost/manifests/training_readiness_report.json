@@ -1,0 +1,125 @@
+{
+  "blockers": [],
+  "context": {
+    "benchmark_result_context_count": 61,
+    "context_row_count": 177,
+    "context_source_counts": {
+      "mlperf": 78,
+      "techpowerup": 99
+    },
+    "hardware_specs_count": 116,
+    "mlperf_row_count": 78
+  },
+  "duplicates": {
+    "duplicate_row_id_count": 0,
+    "duplicate_script_sha256_count": 0
+  },
+  "external_intake": {
+    "mlcommons_inference": {
+      "row_count": 78,
+      "validation_status": "warning",
+      "warnings": [
+        "Skipped duplicate MLCommons context rows: count=2.",
+        "Skipped invalid MLCommons JSON files: count=2.",
+        "Skipped unclear MLCommons files: count=432."
+      ]
+    },
+    "mlcommons_raw_inventory": {
+      "warning": "Could not parse third-party raw inventory report."
+    },
+    "pytorch_benchmark": {
+      "warning": "PyTorch benchmark results folder was missing from collected repo; verify source path or skip for now."
+    },
+    "techpowerup": {
+      "row_count": 99,
+      "validation_status": "warning"
+    }
+  },
+  "feature_presence": {
+    "action_count": 1,
+    "completed_action_count": 1,
+    "controlled_grid": 100,
+    "failed_action_count": 1,
+    "has_comparison": 1,
+    "has_diff": 1,
+    "has_trial": 1,
+    "improved_metric_count": 103,
+    "overall_verdict": 103,
+    "phase": 100,
+    "regressed_metric_count": 103,
+    "section_count": 103,
+    "trial_original_file_unchanged": 1,
+    "trial_patch_applied": 1,
+    "trial_status": 1,
+    "trial_syntax_check_status": 1,
+    "trial_test_status": 1,
+    "unchanged_metric_count": 103,
+    "workload_family": 100
+  },
+  "hardware_presence": {
+    "gpu_name": 103
+  },
+  "known_label_counts": {
+    "improved": 42,
+    "neutral": 26,
+    "regressed": 35
+  },
+  "label_counts": {
+    "improved": 42,
+    "neutral": 26,
+    "regressed": 35,
+    "unknown": 1
+  },
+  "labeled_rows": 103,
+  "metric_presence": {
+    "after_best_batch_size": 77,
+    "after_best_images_per_sec": 78,
+    "after_fp32_samples_per_sec": 78,
+    "after_max_successful_batch_size": 25,
+    "before_best_batch_size": 77,
+    "before_best_images_per_sec": 78,
+    "before_fp32_samples_per_sec": 78,
+    "before_max_successful_batch_size": 25,
+    "delta_best_batch_size": 77,
+    "delta_best_images_per_sec": 78,
+    "delta_fp32_samples_per_sec": 78,
+    "delta_max_successful_batch_size": 25,
+    "percent_delta_best_batch_size": 77,
+    "percent_delta_best_images_per_sec": 78,
+    "percent_delta_fp32_samples_per_sec": 78,
+    "percent_delta_max_successful_batch_size": 25
+  },
+  "privacy": {
+    "unsafe_context_count": 0,
+    "unsafe_row_count": 0
+  },
+  "recommendations": [
+    "Keep TechPowerUp rows as hardware context, not labels.",
+    "PyTorch benchmark results folder was missing from collected repo; verify source path or skip for now."
+  ],
+  "row_type_counts": {
+    "controlled_experiment": 103,
+    "optimization_outcome": 1
+  },
+  "source_counts": {
+    "controlled_experiment": 103,
+    "gpuboost_history": 1
+  },
+  "split_counts": {
+    "test": 11,
+    "train": 83,
+    "validation": 10
+  },
+  "status": "ready",
+  "total_rows": 104,
+  "unlabeled_rows": 1,
+  "usefulness": {
+    "has_comparison_labels": true,
+    "has_context_data": true,
+    "has_enough_label_classes": true,
+    "has_enough_labeled_rows": true,
+    "has_enough_rows": true,
+    "has_hardware_features": true,
+    "has_trial_features": true
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "extracted_series_counts": {
+    "rtx_30": 41,
+    "rtx_40": 25,
+    "rtx_50": 20,
+    "unknown": 13
+  },
+  "file_count": 99,
+  "generated_at": "2026-05-23T04:40:21.031670+00:00",
+  "input_dir": "data\\gpuboost\\raw\\techpowerup\\GPU_Info",
+  "missing_fields_summary": {
+    "boost_clock_mhz": 67,
+    "die_size_mm2": 1,
+    "launch_price": 57,
+    "power_connectors": 1,
+    "rt_cores": 6,
+    "tensor_cores": 3
+  },
+  "output_dir": "data\\gpuboost\\generated",
+  "output_files": {
+    "intake_report_json": "data\\gpuboost\\manifests\\techpowerup_gpu_specs_intake_report.json",
+    "intake_report_md": "data\\gpuboost\\manifests\\techpowerup_gpu_specs_intake_report.md",
+    "jsonl": "data\\gpuboost\\generated\\techpowerup_gpu_specs.jsonl",
+    "validation_report": "data\\gpuboost\\generated\\techpowerup_gpu_specs_validation_report.json"
+  },
+  "row_count": 99,
+  "validation": {
+    "invalid_row_count": 0,
+    "issue_count": 99,
+    "row_count": 99,
+    "status": "warning",
+    "valid_row_count": 99
+  },
+  "warnings": []
+}
