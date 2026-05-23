@@ -1,0 +1,11 @@
+[
+  {
+    "row_id": "example_dataloader_improved_001",
+    "workload_name": "dataloader_bottleneck",
+    "baseline_json_path": "path/to/baseline.json",
+    "optimized_json_path": "path/to/optimized.json",
+    "hardware": {
+      "gpu_name": "NVIDIA GeForce RTX 4060 Laptop GPU"
+    }
+  }
+]

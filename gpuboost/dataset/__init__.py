@@ -36,6 +36,12 @@ from gpuboost.dataset.mlcommons_importer import (
     parse_mlcommons_scalar,
     run_mlcommons_intake,
 )
+from gpuboost.dataset.outcome_collection import (
+    collect_outcome_from_benchmark_json,
+    collect_outcomes_from_pairs,
+    comparison_result_to_dataset_row,
+    comparison_result_to_label,
+)
 from gpuboost.dataset.readiness import (
     analyze_training_readiness,
     write_training_readiness_reports,
@@ -74,6 +80,10 @@ __all__ = [
     "assign_dataset_splits",
     "assemble_training_dataset",
     "build_dataset_manifest",
+    "collect_outcome_from_benchmark_json",
+    "collect_outcomes_from_pairs",
+    "comparison_result_to_dataset_row",
+    "comparison_result_to_label",
     "derive_label_from_history_record",
     "estimate_history_row_quality",
     "export_benchmark_context_jsonl",
