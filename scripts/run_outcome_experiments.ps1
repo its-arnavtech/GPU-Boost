@@ -15,10 +15,29 @@ function Run-Workload {
     $outputDirectory = Split-Path -Parent $OutputPath
     New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 
-    & $PythonExe $ScriptPath > $OutputPath
+    $captured = & $PythonExe $ScriptPath 2>&1
     if ($LASTEXITCODE -ne 0) {
         throw "Workload failed: $Name"
     }
+
+    $jsonText = (($captured | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
+    if ([string]::IsNullOrWhiteSpace($jsonText)) {
+        throw "Workload emitted empty JSON: $Name"
+    }
+
+    try {
+        $null = $jsonText | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "Workload did not emit valid JSON: $Name"
+    }
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+    [System.IO.File]::WriteAllText(
+        $OutputPath,
+        $jsonText + [Environment]::NewLine,
+        $utf8NoBom
+    )
     if (-not (Test-Path -LiteralPath $OutputPath)) {
         throw "Missing workload output: $OutputPath"
     }

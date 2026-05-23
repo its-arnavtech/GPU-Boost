@@ -469,7 +469,9 @@ def _attach_external_intake_status(report: dict[str, Any]) -> dict[str, Any]:
     mlcommons_report_path = Path("data/gpuboost/manifests/third_party_raw_inventory.json")
     if mlcommons_report_path.exists():
         try:
-            mlcommons_report = json.loads(mlcommons_report_path.read_text(encoding="utf-8"))
+            mlcommons_report = json.loads(
+                mlcommons_report_path.read_text(encoding="utf-8-sig")
+            )
             external_intake["mlcommons_raw_inventory"] = {
                 "generated_at": mlcommons_report.get("generated_at"),
                 "repositories_collected": len(mlcommons_report.get("repositories_collected", [])),

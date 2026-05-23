@@ -55,7 +55,6 @@ gpuboost-report.*
 .env
 .env.*
 !.env.example
-!.env.staging
 !.env.sample
 *.token
 *.secret

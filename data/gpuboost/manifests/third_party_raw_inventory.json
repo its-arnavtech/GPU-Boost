@@ -1,10 +1,10 @@
-﻿{
+{
     "generated_at":  "2026-05-22T14:51:34.6358371-05:00",
     "repositories_collected":  [
                                    {
                                        "name":  "MLCommons inference_results_v6.0",
                                        "repo_url":  "https://github.com/mlcommons/inference_results_v6.0",
-                                       "local_path":  "C:\\GPU-Boost\\data\\gpuboost\\raw\\mlcommons\\inference_results_v6.0",
+                                       "local_path":  "data/gpuboost/raw/mlcommons/inference_results_v6.0",
                                        "sparse_checkout_folders":  [
                                                                        "closed/NVIDIA",
                                                                        "closed/AMD",
@@ -46,7 +46,7 @@
                                    {
                                        "name":  "PyTorch benchmark",
                                        "repo_url":  "https://github.com/pytorch/benchmark",
-                                       "local_path":  "C:\\GPU-Boost\\data\\gpuboost\\raw\\pytorch\\benchmark",
+                                       "local_path":  "data/gpuboost/raw/pytorch/benchmark",
                                        "sparse_checkout_folders":  [
                                                                        "results"
                                                                    ],

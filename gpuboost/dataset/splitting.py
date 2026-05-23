@@ -5,6 +5,7 @@ from __future__ import annotations
 import random
 from dataclasses import replace
 from math import isclose
+from collections import defaultdict
 
 from gpuboost.schemas.dataset import DatasetRow, DatasetSplitSummary, create_timestamp
 
@@ -62,6 +63,65 @@ def assign_dataset_splits(
     return copied_rows, summary
 
 
+def assign_grouped_stratified_splits(
+    rows: list[DatasetRow],
+    train_ratio: float = 0.8,
+    validation_ratio: float = 0.1,
+    test_ratio: float = 0.1,
+    seed: int = 42,
+    overwrite: bool = False,
+) -> tuple[list[DatasetRow], DatasetSplitSummary]:
+    """Assign deterministic splits while keeping related row groups together."""
+
+    validate_split_ratios(train_ratio, validation_ratio, test_ratio)
+    copied_rows = [replace(row) for row in rows]
+
+    grouped_indexes: dict[str, list[int]] = defaultdict(list)
+    for index, row in enumerate(copied_rows):
+        if not overwrite and row.split is not None:
+            continue
+        grouped_indexes[_split_group_key(row)].append(index)
+
+    group_items = list(grouped_indexes.items())
+    rng = random.Random(seed)
+    rng.shuffle(group_items)
+
+    groups_by_label: dict[str, list[tuple[str, list[int]]]] = defaultdict(list)
+    for group_key, indexes in group_items:
+        label = _primary_group_label(copied_rows[index] for index in indexes)
+        groups_by_label[label].append((group_key, indexes))
+
+    for label in sorted(groups_by_label):
+        groups = groups_by_label[label]
+        assignments = _assignment_sequence(
+            len(groups),
+            train_ratio,
+            validation_ratio,
+        )
+        for (_group_key, indexes), split in zip(groups, assignments):
+            for index in indexes:
+                copied_rows[index] = replace(copied_rows[index], split=split)
+
+    counts = split_counts(copied_rows)
+    summary = DatasetSplitSummary(
+        generated_at=create_timestamp(),
+        train_count=counts["train"],
+        validation_count=counts["validation"],
+        test_count=counts["test"],
+        unassigned_count=counts["unassigned"],
+        strategy="grouped_stratified",
+        seed=seed,
+        metadata={
+            "train_ratio": train_ratio,
+            "validation_ratio": validation_ratio,
+            "test_ratio": test_ratio,
+            "overwrite": overwrite,
+            "group_count": len(grouped_indexes),
+        },
+    )
+    return copied_rows, summary
+
+
 def validate_split_ratios(
     train_ratio: float,
     validation_ratio: float,
@@ -93,6 +153,12 @@ def split_counts(rows: list[DatasetRow]) -> dict[str, int]:
     return counts
 
 
+def split_group_key(row: DatasetRow) -> str:
+    """Return the stable grouping key used by grouped split assignment."""
+
+    return _split_group_key(row)
+
+
 def _assignment_sequence(
     count: int,
     train_ratio: float,
@@ -112,3 +178,40 @@ def _assignment_sequence(
         + ["validation"] * validation_count
         + ["test"] * test_count
     )
+
+
+def _split_group_key(row: DatasetRow) -> str:
+    metadata_family = row.metadata.get("grid_family") or row.metadata.get(
+        "workload_family"
+    )
+    feature_family = row.features.get("workload_family")
+    workload_name = row.workload.get("workload_name")
+
+    if isinstance(metadata_family, str) and metadata_family:
+        return f"metadata.grid_family:{metadata_family}"
+    if isinstance(feature_family, str) and feature_family:
+        return f"features.workload_family:{feature_family}"
+    if isinstance(workload_name, str) and workload_name:
+        return f"workload.workload_name:{workload_name}"
+
+    prefix = _controlled_row_prefix(row.row_id)
+    if prefix:
+        return f"row_id_prefix:{prefix}"
+    return f"row_id:{row.row_id}"
+
+
+def _controlled_row_prefix(row_id: str) -> str | None:
+    parts = row_id.split("_")
+    if len(parts) >= 3 and parts[0] == "controlled" and parts[1] == "grid":
+        return "_".join(parts[:3])
+    return None
+
+
+def _primary_group_label(rows: object) -> str:
+    labels: dict[str, int] = {}
+    for row in rows:
+        label = row.label.value if row.label.is_known() else "unknown"
+        labels[label] = labels.get(label, 0) + 1
+    if not labels:
+        return "unknown"
+    return sorted(labels.items(), key=lambda item: (-item[1], item[0]))[0][0]

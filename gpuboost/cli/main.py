@@ -142,6 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print machine-readable JSON output.",
     )
     agent_optimize_parser.add_argument(
+        "--include-raw-artifacts",
+        action="store_true",
+        help="Include raw diff and trial stdout/stderr in JSON output.",
+    )
+    agent_optimize_parser.add_argument(
         "--quick",
         action="store_true",
         default=True,
@@ -439,7 +444,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.json:
                 print(
                     json.dumps(
-                        build_agent_optimize_json_payload(result, report),
+                        build_agent_optimize_json_payload(
+                            result,
+                            report,
+                            include_raw_artifacts=args.include_raw_artifacts,
+                        ),
                         indent=2,
                         sort_keys=True,
                     )
@@ -1184,21 +1193,23 @@ def render_agent_report_human(
 def build_agent_optimize_json_payload(
     result: AgentRunResult,
     report: AgentReport,
+    include_raw_artifacts: bool = False,
 ) -> dict[str, object]:
     """Build the stable JSON payload for agent optimize."""
+
+    result_dict = result.to_dict()
+    if not include_raw_artifacts:
+        _redact_agent_result_artifacts(result_dict)
 
     return {
         "schema_version": "agent.optimize.v1",
         "command": "agent optimize",
-        "result": result.to_dict(),
+        "result": result_dict,
         "report": report.to_dict(),
-        "artifacts": {
-            "diff": _get_agent_diff_artifact(result),
-            "trial": _get_agent_trial_artifact(result),
-            "comparison": _get_agent_comparison_artifact(result),
-            "history_run_id": _get_agent_history_run_id(result),
-            "model": _get_agent_model_artifact(result),
-        },
+        "artifacts": _build_agent_json_artifacts(
+            result,
+            include_raw_artifacts=include_raw_artifacts,
+        ),
     }
 
 
@@ -1266,6 +1277,68 @@ def _get_agent_diff_artifact(result: AgentRunResult) -> str | None:
     if isinstance(diff, str) and diff:
         return diff
     return None
+
+
+def _build_agent_json_artifacts(
+    result: AgentRunResult,
+    *,
+    include_raw_artifacts: bool,
+) -> dict[str, object]:
+    raw_diff = _get_agent_diff_artifact(result)
+    raw_trial = _get_agent_trial_artifact(result)
+    if include_raw_artifacts:
+        diff = raw_diff
+        trial = raw_trial
+        diff_redacted = False
+    else:
+        diff = None
+        trial = _redacted_trial_artifact(raw_trial)
+        diff_redacted = raw_diff is not None
+
+    return {
+        "diff": diff,
+        "diff_redacted": diff_redacted,
+        "trial": trial,
+        "comparison": _get_agent_comparison_artifact(result),
+        "history_run_id": _get_agent_history_run_id(result),
+        "model": _get_agent_model_artifact(result),
+        "raw_artifacts_included": include_raw_artifacts,
+    }
+
+
+def _redact_agent_result_artifacts(result_dict: dict[str, object]) -> None:
+    artifacts = result_dict.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return
+    raw_diff = artifacts.get("diff")
+    artifacts["diff"] = None
+    artifacts["diff_redacted"] = isinstance(raw_diff, str) and bool(raw_diff)
+    artifacts["trial"] = _redacted_trial_artifact(artifacts.get("trial"))
+    artifacts["raw_artifacts_included"] = False
+
+
+def _redacted_trial_artifact(trial: object) -> dict[str, object] | None:
+    if not isinstance(trial, dict):
+        return None
+
+    redacted = dict(trial)
+    steps = redacted.get("steps")
+    if isinstance(steps, list):
+        redacted_steps = []
+        for step in steps:
+            if not isinstance(step, dict):
+                redacted_steps.append(step)
+                continue
+            redacted_step = dict(step)
+            for stream_name in ("stdout", "stderr"):
+                value = redacted_step.get(stream_name)
+                was_redacted = isinstance(value, str) and bool(value)
+                if was_redacted:
+                    redacted_step[stream_name] = None
+                redacted_step[f"{stream_name}_redacted"] = was_redacted
+            redacted_steps.append(redacted_step)
+        redacted["steps"] = redacted_steps
+    return redacted
 
 
 def _get_agent_trial_artifact(result: AgentRunResult) -> dict[str, object] | None:

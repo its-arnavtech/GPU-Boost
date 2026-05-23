@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 
 from gpuboost.dataset.splitting import (
+    assign_grouped_stratified_splits,
     assign_dataset_splits,
+    split_group_key,
     split_counts,
     validate_split_ratios,
 )
@@ -128,17 +130,115 @@ def test_split_values_valid() -> None:
     assert {row.split for row in assigned} <= {"train", "validation", "test"}
 
 
-def _make_row(row_id: str, split: str | None = None) -> DatasetRow:
+def test_grouped_rows_stay_in_same_split() -> None:
+    rows = [
+        _make_row(f"amp-{index}", label="improved", family="amp")
+        for index in range(4)
+    ] + [
+        _make_row(f"batch-{index}", label="regressed", family="batch")
+        for index in range(4)
+    ]
+
+    assigned, summary = assign_grouped_stratified_splits(
+        rows,
+        train_ratio=0.5,
+        validation_ratio=0.25,
+        test_ratio=0.25,
+        seed=7,
+    )
+
+    splits_by_group: dict[str, set[str | None]] = {}
+    for row in assigned:
+        splits_by_group.setdefault(split_group_key(row), set()).add(row.split)
+
+    assert all(len(splits) == 1 for splits in splits_by_group.values())
+    assert summary.metadata["group_count"] == 2
+
+
+def test_grouped_stratified_splits_keep_reasonable_label_distribution() -> None:
+    rows = [
+        _make_row(f"improved-{index}", label="improved", family=f"family-i-{index}")
+        for index in range(6)
+    ] + [
+        _make_row(f"regressed-{index}", label="regressed", family=f"family-r-{index}")
+        for index in range(6)
+    ]
+
+    assigned, _ = assign_grouped_stratified_splits(
+        rows,
+        train_ratio=0.5,
+        validation_ratio=0.25,
+        test_ratio=0.25,
+        seed=3,
+    )
+
+    labels_by_split: dict[str, set[str]] = {"train": set(), "validation": set(), "test": set()}
+    for row in assigned:
+        labels_by_split[str(row.split)].add(row.label.value)
+
+    assert labels_by_split["train"] == {"improved", "regressed"}
+    assert labels_by_split["validation"] == {"improved", "regressed"}
+    assert labels_by_split["test"] == {"improved", "regressed"}
+
+
+def test_grouped_stratified_splits_are_deterministic_with_seed() -> None:
+    rows = [
+        _make_row(f"row-{index}", label="improved", family=f"family-{index}")
+        for index in range(10)
+    ]
+
+    first, _ = assign_grouped_stratified_splits(rows, seed=99)
+    second, _ = assign_grouped_stratified_splits(rows, seed=99)
+
+    assert [(row.row_id, row.split) for row in first] == [
+        (row.row_id, row.split) for row in second
+    ]
+
+
+def test_grouped_stratified_small_datasets_are_safe() -> None:
+    assigned, summary = assign_grouped_stratified_splits([_make_row("row-001")])
+
+    assert assigned[0].split == "train"
+    assert summary.train_count == 1
+    assert summary.validation_count == 0
+    assert summary.test_count == 0
+
+
+def test_grouped_stratified_unknown_labels_do_not_crash() -> None:
+    assigned, summary = assign_grouped_stratified_splits(
+        [
+            _make_row("row-001", label="unknown", family="neutral"),
+            _make_row("row-002", label="unknown", family="neutral"),
+        ],
+    )
+
+    assert {row.split for row in assigned} == {"train"}
+    assert summary.train_count == 2
+
+
+def _make_row(
+    row_id: str,
+    split: str | None = None,
+    *,
+    label: str = "improved",
+    family: str | None = None,
+) -> DatasetRow:
     return DatasetRow(
         row_id=row_id,
         created_at="2026-01-01T00:00:00+00:00",
         source="gpuboost_history",
         row_type="optimization_outcome",
         hardware={"gpu_name": "NVIDIA A100"},
-        workload={"command": "agent optimize"},
-        features={"action_count": 1},
+        workload={"command": "agent optimize", "workload_name": row_id},
+        features={
+            "action_count": 1,
+            **({"workload_family": family} if family is not None else {}),
+        },
         metrics={"benchmark_median_ms": 9.5},
-        label=DatasetLabel(value="improved", source="comparison"),
+        label=DatasetLabel(
+            value=label,
+            source="comparison" if label != "unknown" else "unknown",
+        ),
         privacy=DatasetPrivacyFlags(),
         split=split,
         quality_score=0.9,

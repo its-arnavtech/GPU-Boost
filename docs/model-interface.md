@@ -39,6 +39,26 @@ Model outputs are advisory metadata only. They are stored under
 `artifacts.model` in `agent.optimize.v1` JSON and shown in a human `Model`
 section when `--model` is used.
 
+## Phase 12 Training Plan
+
+Phase 12 should start with a baseline structured model. It should not begin
+with fine-tuning, model loading, or patch application.
+
+Training code must use the dataset training feature extraction layer and never
+train from raw `DatasetRow.to_dict()` output. Reporting fields can remain on
+dataset rows, but target-derived comparison fields such as `overall_verdict`,
+before/after metric values, deltas, percent deltas, labels, split names, raw
+diffs, stdout, and stderr must not become model features.
+
+Controlled outcome rows are useful baseline training examples, but they are
+limited. They come from controlled synthetic workloads and measured benchmark
+pairs, not from arbitrary real user scripts. Third-party benchmark data should
+be treated as context and provenance, not as direct GPUBoost labels.
+
+The deterministic GPUBoost workflow remains authoritative. A trained model may
+rank, score, or annotate recommendations, but it must not apply patches
+directly or override measured benchmark comparisons.
+
 ## Commands
 
 ```bash
@@ -54,6 +74,7 @@ artifacts remain present alongside the model artifact.
 
 ## Roadmap
 
-- Phase 11 will add data collection and validation.
-- Phase 12 will train and integrate GPUBoost's own model.
+- Phase 11 adds data collection and validation.
+- Phase 12 will train and integrate GPUBoost's own baseline structured model
+  after safe feature extraction and grouped validation splits are in place.
 - Phase 13 will test the full production system.

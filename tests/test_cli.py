@@ -828,8 +828,12 @@ def test_cli_agent_optimize_final_smoke_matrix(monkeypatch, capsys) -> None:
     assert exit_code == 0
     assert script_data["schema_version"] == "agent.optimize.v1"
     assert script_data["result"]["goal"]["script_path"] == "train.py"
-    assert script_data["artifacts"]["diff"] == _FAKE_DIFF
+    assert script_data["artifacts"]["diff"] is None
+    assert script_data["artifacts"]["diff_redacted"] is True
+    assert script_data["result"]["artifacts"]["diff"] is None
+    assert script_data["result"]["artifacts"]["diff_redacted"] is True
     assert script_data["artifacts"]["comparison"] is None
+    assert _FAKE_DIFF not in json_script.out
     assert "Reviewable Patch Diff:" not in json_script.out
     assert json_script.err == ""
 
@@ -891,8 +895,10 @@ def test_cli_agent_optimize_json_outputs_result_and_report(
     assert data["artifacts"] == {
         "comparison": None,
         "diff": None,
+        "diff_redacted": False,
         "history_run_id": None,
         "model": None,
+        "raw_artifacts_included": False,
         "trial": None,
     }
     assert data["result"]["status"] == "ok"
@@ -930,7 +936,7 @@ def test_cli_agent_optimize_json_does_not_print_human_safety_text(
     assert captured.err == ""
 
 
-def test_cli_agent_optimize_json_includes_diff_artifact_when_present(
+def test_cli_agent_optimize_json_redacts_diff_artifact_when_present(
     monkeypatch,
     capsys,
 ) -> None:
@@ -956,10 +962,46 @@ def test_cli_agent_optimize_json_includes_diff_artifact_when_present(
     data = json.loads(captured.out)
 
     assert exit_code == 0
-    assert data["artifacts"]["diff"] == _FAKE_DIFF
-    assert data["result"]["artifacts"]["diff"] == _FAKE_DIFF
+    assert data["artifacts"]["diff"] is None
+    assert data["artifacts"]["diff_redacted"] is True
+    assert data["result"]["artifacts"]["diff"] is None
+    assert data["result"]["artifacts"]["diff_redacted"] is True
+    assert _FAKE_DIFF not in captured.out
     assert "Reviewable Patch Diff:" not in captured.out
     assert captured.err == ""
+
+
+def test_cli_agent_optimize_json_raw_artifacts_opt_in_includes_diff(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        return _fake_agent_result_and_report(
+            script_path=script_path,
+            quick=quick,
+            diff=_FAKE_DIFF,
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(
+        ["agent", "optimize", "train.py", "--json", "--include-raw-artifacts"]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["artifacts"]["diff"] == _FAKE_DIFF
+    assert data["artifacts"]["diff_redacted"] is False
+    assert data["result"]["artifacts"]["diff"] == _FAKE_DIFF
 
 
 def test_cli_agent_optimize_json_includes_null_diff_without_artifact(
@@ -979,6 +1021,7 @@ def test_cli_agent_optimize_json_includes_null_diff_without_artifact(
     assert exit_code == 0
     assert data["artifacts"]["diff"] is None
     assert data["result"]["artifacts"]["diff"] is None
+    assert data["artifacts"]["diff_redacted"] is False
     assert captured.err == ""
 
 
@@ -1274,8 +1317,10 @@ def test_build_agent_optimize_json_payload_returns_stable_dict() -> None:
     assert payload["artifacts"] == {
         "comparison": None,
         "diff": None,
+        "diff_redacted": False,
         "history_run_id": None,
         "model": None,
+        "raw_artifacts_included": False,
         "trial": None,
     }
     assert payload["result"]["goal"]["script_path"] == "train.py"
@@ -1429,6 +1474,8 @@ def test_cli_trial_json_includes_artifacts_trial(monkeypatch, capsys) -> None:
     assert exit_code == 0
     assert data["artifacts"]["trial"]["status"] == "passed"
     assert data["artifacts"]["trial"]["patch_applied"] is True
+    assert data["artifacts"]["trial"]["steps"][0]["stdout_redacted"] is False
+    assert data["artifacts"]["trial"]["steps"][0]["stderr_redacted"] is False
 
 
 def test_cli_no_trial_json_includes_null_trial(monkeypatch, capsys) -> None:
@@ -1568,6 +1615,110 @@ def test_cli_test_with_trial_json_includes_test_command(monkeypatch, capsys) -> 
     assert exit_code == 0
     assert data["artifacts"]["trial"]["test_command"] == "python -c pass"
     assert data["artifacts"]["trial"]["test_status"] == "passed"
+
+
+def test_cli_trial_json_redacts_stdout_and_stderr_by_default(
+    monkeypatch,
+    capsys,
+) -> None:
+    trial_artifact = _fake_trial_artifact(
+        test_command="python -c pass",
+        test_status="passed",
+        stdout="secret stdout",
+        stderr="secret stderr",
+    )
+
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+        trial: bool = False,
+        test_command: str | None = None,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        return _fake_agent_result_and_report(
+            script_path=script_path,
+            quick=quick,
+            trial_artifact=trial_artifact,
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(
+        [
+            "agent",
+            "optimize",
+            "train.py",
+            "--trial",
+            "--test",
+            "python -c pass",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    step = data["artifacts"]["trial"]["steps"][0]
+
+    assert exit_code == 0
+    assert "secret stdout" not in captured.out
+    assert "secret stderr" not in captured.out
+    assert step["stdout"] is None
+    assert step["stderr"] is None
+    assert step["stdout_redacted"] is True
+    assert step["stderr_redacted"] is True
+
+
+def test_cli_trial_json_raw_artifacts_opt_in_includes_stdout_and_stderr(
+    monkeypatch,
+    capsys,
+) -> None:
+    trial_artifact = _fake_trial_artifact(
+        test_command="python -c pass",
+        test_status="passed",
+        stdout="raw stdout",
+        stderr="raw stderr",
+    )
+
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+        trial: bool = False,
+        test_command: str | None = None,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        return _fake_agent_result_and_report(
+            script_path=script_path,
+            quick=quick,
+            trial_artifact=trial_artifact,
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(
+        [
+            "agent",
+            "optimize",
+            "train.py",
+            "--trial",
+            "--test",
+            "python -c pass",
+            "--json",
+            "--include-raw-artifacts",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["artifacts"]["trial"]["steps"][0]["stdout"] == "raw stdout"
+    assert data["artifacts"]["trial"]["steps"][0]["stderr"] == "raw stderr"
 
 
 def test_cli_test_human_output_displays_test_command(monkeypatch, capsys) -> None:
@@ -2356,6 +2507,8 @@ def _fake_trial_artifact(
     test_command: str | None = None,
     test_status: str | None = "skipped",
     error: str | None = None,
+    stdout: str | None = None,
+    stderr: str | None = None,
 ) -> dict[str, object]:
     return {
         "generated_at": "2026-01-01T00:00:00+00:00",
@@ -2365,8 +2518,8 @@ def _fake_trial_artifact(
             {
                 "name": "run_test_command",
                 "status": test_status or "skipped",
-                "stdout": None,
-                "stderr": None,
+                "stdout": stdout,
+                "stderr": stderr,
                 "exit_code": None,
             }
         ],
