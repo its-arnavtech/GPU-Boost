@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+.pytest-tmp/
+pytest_tmp/
 pytest-cache-files-*/
 .ruff_cache/
 .mypy_cache/
@@ -54,6 +56,7 @@ gpuboost-report.*
 .env.*
 !.env.example
 !.env.sample
+*.token
 *.secret
 *.secrets
 secrets/
@@ -97,5 +100,15 @@ weights/
 *.pt
 *.pth
 *.ckpt
+*.pkl
+*.joblib
 *.safetensors
 *.onnx
+
+# GPUBoost local data intake
+data/gpuboost/raw/
+data/gpuboost/generated/
+
+# Temp directories
+tmp/
+temp/

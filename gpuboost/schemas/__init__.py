@@ -40,6 +40,16 @@ from gpuboost.schemas.comparison import (
     ComparisonResult,
     ComparisonSection,
 )
+from gpuboost.schemas.dataset import (
+    BenchmarkContextRow,
+    DatasetLabel,
+    DatasetManifest,
+    DatasetPrivacyFlags,
+    DatasetRow,
+    DatasetSplitSummary,
+    DatasetValidationIssue,
+    DatasetValidationReport,
+)
 from gpuboost.schemas.patch_plan import (
     PatchEdit,
     PatchPlan,
@@ -70,6 +80,14 @@ __all__ = [
     "CodeFinding",
     "ComparisonResult",
     "ComparisonSection",
+    "BenchmarkContextRow",
+    "DatasetLabel",
+    "DatasetManifest",
+    "DatasetPrivacyFlags",
+    "DatasetRow",
+    "DatasetSplitSummary",
+    "DatasetValidationIssue",
+    "DatasetValidationReport",
     "GPUBoostProfile",
     "GPUDeviceProfile",
     "HistoryCompareResult",

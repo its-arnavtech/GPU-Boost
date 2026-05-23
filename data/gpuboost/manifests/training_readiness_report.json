@@ -1,0 +1,94 @@
+{
+  "blockers": [
+    "Not enough total rows for training.",
+    "No labeled optimization outcome rows found.",
+    "No comparison-derived labels found."
+  ],
+  "context": {
+    "benchmark_result_context_count": 61,
+    "context_row_count": 177,
+    "context_source_counts": {
+      "mlperf": 78,
+      "techpowerup": 99
+    },
+    "hardware_specs_count": 116,
+    "mlperf_row_count": 78
+  },
+  "duplicates": {
+    "duplicate_row_id_count": 0,
+    "duplicate_script_sha256_count": 0
+  },
+  "external_intake": {
+    "mlcommons_inference": {
+      "row_count": 78,
+      "validation_status": "warning",
+      "warnings": [
+        "Skipped duplicate MLCommons context rows: count=2.",
+        "Skipped invalid MLCommons JSON files: count=2.",
+        "Skipped unclear MLCommons files: count=432."
+      ]
+    },
+    "mlcommons_raw_inventory": {
+      "warning": "Could not parse third-party raw inventory report."
+    },
+    "pytorch_benchmark": {
+      "warning": "PyTorch benchmark results folder was missing from collected repo; verify source path or skip for now."
+    },
+    "techpowerup": {
+      "row_count": 99,
+      "validation_status": "warning"
+    }
+  },
+  "feature_presence": {
+    "action_count": 1,
+    "completed_action_count": 1,
+    "failed_action_count": 1,
+    "has_comparison": 1,
+    "has_diff": 1,
+    "has_trial": 1,
+    "trial_original_file_unchanged": 1,
+    "trial_patch_applied": 1,
+    "trial_status": 1,
+    "trial_syntax_check_status": 1,
+    "trial_test_status": 1
+  },
+  "hardware_presence": {},
+  "known_label_counts": {},
+  "label_counts": {
+    "unknown": 1
+  },
+  "labeled_rows": 0,
+  "metric_presence": {},
+  "privacy": {
+    "unsafe_context_count": 0,
+    "unsafe_row_count": 0
+  },
+  "recommendations": [
+    "Run GPUBoost with --save-history on real scripts.",
+    "Run before/after comparisons to create improved/regressed/neutral labels.",
+    "Keep TechPowerUp rows as hardware context, not labels.",
+    "Capture GPU/hardware details consistently in history rows.",
+    "PyTorch benchmark results folder was missing from collected repo; verify source path or skip for now."
+  ],
+  "row_type_counts": {
+    "optimization_outcome": 1
+  },
+  "source_counts": {
+    "gpuboost_history": 1
+  },
+  "split_counts": {
+    "train": 1
+  },
+  "status": "not_ready",
+  "total_rows": 1,
+  "unlabeled_rows": 1,
+  "usefulness": {
+    "has_comparison_labels": false,
+    "has_context_data": true,
+    "has_enough_label_classes": false,
+    "has_enough_labeled_rows": false,
+    "has_enough_rows": false,
+    "has_hardware_features": false,
+    "has_trial_features": true
+  }
+}
