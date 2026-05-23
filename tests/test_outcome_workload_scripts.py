@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import builtins
+import importlib.util
 import json
 import os
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 
 
@@ -75,6 +78,31 @@ def test_smoke_workloads_write_json_to_stdout_only() -> None:
     assert json.loads(payload.stdout)["metadata"]["workload"] == "batch_size"
 
 
+def test_load_torch_suppresses_known_numpy_warning(monkeypatch) -> None:
+    module = _load_common_module()
+    original_import = builtins.__import__
+    torch_sentinel = object()
+
+    def fake_import(name, *args, **kwargs):
+        if name == "torch":
+            warnings.warn(
+                "Failed to initialize NumPy: No module named 'numpy'",
+                UserWarning,
+                stacklevel=2,
+            )
+            return torch_sentinel
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("default")
+        loaded = module.load_torch()
+
+    assert loaded is torch_sentinel
+    assert captured == []
+
+
 def _run_workload_smoke(script_name: str, return_process: bool = False):
     env = dict(os.environ)
     env["GPUBOOST_OUTCOME_SMOKE"] = "1"
@@ -88,3 +116,15 @@ def _run_workload_smoke(script_name: str, return_process: bool = False):
     if return_process:
         return completed
     return json.loads(completed.stdout)
+
+
+def _load_common_module():
+    spec = importlib.util.spec_from_file_location(
+        "outcome_workload_common_under_test",
+        WORKLOAD_DIR / "_common.py",
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError("Could not load workload common module.")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module

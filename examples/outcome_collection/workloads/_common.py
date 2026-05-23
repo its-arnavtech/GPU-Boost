@@ -7,7 +7,10 @@ import os
 import statistics
 import sys
 import time
+import warnings
 from typing import Any, Callable
+
+_TORCH_NUMPY_WARNING = r"Failed to initialize NumPy:.*"
 
 
 def smoke_mode() -> bool:
@@ -19,6 +22,11 @@ def smoke_mode() -> bool:
 def load_torch():
     """Import torch when available without making it a hard script requirement."""
 
+    warnings.filterwarnings(
+        "ignore",
+        message=_TORCH_NUMPY_WARNING,
+        category=UserWarning,
+    )
     try:
         import torch
     except Exception:
