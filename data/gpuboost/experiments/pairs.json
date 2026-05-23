@@ -1,0 +1,29 @@
+[
+  {
+    "row_id": "controlled_dataloader_001",
+    "workload_name": "dataloader_controlled",
+    "baseline_json_path": "dataloader_001/baseline.json",
+    "optimized_json_path": "dataloader_001/optimized.json",
+    "hardware": {
+      "gpu_name": "auto"
+    }
+  },
+  {
+    "row_id": "controlled_amp_001",
+    "workload_name": "amp_controlled",
+    "baseline_json_path": "amp_001/baseline.json",
+    "optimized_json_path": "amp_001/optimized.json",
+    "hardware": {
+      "gpu_name": "auto"
+    }
+  },
+  {
+    "row_id": "controlled_batch_001",
+    "workload_name": "batch_size_controlled",
+    "baseline_json_path": "batch_001/baseline.json",
+    "optimized_json_path": "batch_001/optimized.json",
+    "hardware": {
+      "gpu_name": "auto"
+    }
+  }
+]

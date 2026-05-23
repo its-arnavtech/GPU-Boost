@@ -1,4 +1,4 @@
-"""Controlled benchmark outcome collection for GPUBoost Phase 11.8.
+"""Controlled benchmark outcome collection for GPUBoost Phase 11.8/11.9.
 
 This module currently compares existing local benchmark JSON files. It does not
 execute arbitrary benchmark commands, run user code, scrape, download, or call
@@ -14,10 +14,22 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from gpuboost.comparison.engine import compare_benchmarks
+from gpuboost.dataset.export import (
+    build_dataset_manifest,
+    export_dataset_jsonl,
+    export_manifest,
+    export_validation_report,
+)
+from gpuboost.dataset.readiness import (
+    analyze_training_readiness,
+    write_training_readiness_reports,
+)
+from gpuboost.dataset.validation import validate_dataset_rows
 from gpuboost.schemas.comparison import ComparisonMetricValue, ComparisonResult
 from gpuboost.schemas.dataset import (
     DatasetLabel,
@@ -27,6 +39,8 @@ from gpuboost.schemas.dataset import (
     create_timestamp,
 )
 
+
+OUTCOME_COLLECTION_SCHEMA_VERSION = "dataset.outcome_collection.v1"
 
 _UNSAFE_KEY_PARTS = (
     "raw",
@@ -103,6 +117,8 @@ def collect_outcome_from_benchmark_json(
     row_id: str | None = None,
     workload_name: str | None = None,
     hardware: dict | None = None,
+    features: dict | None = None,
+    metadata: dict | None = None,
     output_dir: str | None = None,
 ) -> tuple[DatasetRow, ComparisonResult]:
     """Compare two local benchmark JSON files and return a labeled dataset row."""
@@ -124,6 +140,8 @@ def collect_outcome_from_benchmark_json(
         row_id=resolved_row_id,
         workload_name=workload_name,
         hardware=hardware,
+        features=features,
+        metadata=metadata,
     )
 
     if output_dir is not None:
@@ -146,10 +164,147 @@ def collect_outcomes_from_pairs(
             row_id=_optional_string(pair.get("row_id")),
             workload_name=_optional_string(pair.get("workload_name")),
             hardware=pair.get("hardware") if isinstance(pair.get("hardware"), dict) else None,
+            features=pair.get("features") if isinstance(pair.get("features"), dict) else None,
+            metadata=pair.get("metadata") if isinstance(pair.get("metadata"), dict) else None,
             output_dir=output_dir,
         )
         rows.append(row)
     return rows
+
+
+def load_outcome_pairs_file(filepath: str) -> list[dict]:
+    """Load and validate a local outcome pair JSON file."""
+
+    path = Path(filepath)
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid outcome pairs JSON in {path}: {exc.msg}") from exc
+
+    if isinstance(loaded, list):
+        pairs = loaded
+    elif isinstance(loaded, dict) and isinstance(loaded.get("pairs"), list):
+        pairs = loaded["pairs"]
+    else:
+        raise ValueError("Outcome pairs JSON must be a list or an object with a pairs list.")
+
+    normalized_pairs = []
+    for index, pair in enumerate(pairs):
+        if not isinstance(pair, dict):
+            raise ValueError(f"Outcome pair at index {index} must be an object.")
+        normalized_pairs.append(_normalize_pair(pair, index))
+    return normalized_pairs
+
+
+def collect_outcomes_from_pairs_file(
+    pairs_file: str,
+    output_dir: str = "data/gpuboost/generated/outcomes",
+    dataset_name: str = "gpuboost_controlled_outcomes",
+    dataset_version: str = "0.1.0",
+    validate: bool = True,
+) -> dict:
+    """Collect labeled outcome rows from a local pair file and export artifacts."""
+
+    generated_at = create_timestamp()
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    warnings: list[str] = []
+    errors: list[dict[str, DatasetValue]] = []
+    pairs = load_outcome_pairs_file(pairs_file)
+    pairs_base_dir = Path(pairs_file).parent
+    rows: list[DatasetRow] = []
+
+    for index, pair in enumerate(pairs):
+        resolved_pair = _resolve_pair_paths(pair, pairs_base_dir)
+        try:
+            row, _comparison = collect_outcome_from_benchmark_json(
+                baseline_json_path=str(resolved_pair["baseline_json_path"]),
+                optimized_json_path=str(resolved_pair["optimized_json_path"]),
+                row_id=_optional_string(resolved_pair.get("row_id")),
+                workload_name=_optional_string(resolved_pair.get("workload_name")),
+                hardware=(
+                    resolved_pair.get("hardware")
+                    if isinstance(resolved_pair.get("hardware"), dict)
+                    else None
+                ),
+                features=(
+                    resolved_pair.get("features")
+                    if isinstance(resolved_pair.get("features"), dict)
+                    else None
+                ),
+                metadata=(
+                    resolved_pair.get("metadata")
+                    if isinstance(resolved_pair.get("metadata"), dict)
+                    else None
+                ),
+                output_dir=None,
+            )
+        except (OSError, ValueError) as error:
+            errors.append(
+                {
+                    "pair_index": index,
+                    "row_id": _optional_string(pair.get("row_id")),
+                    "error": _format_error(error),
+                }
+            )
+            continue
+        rows.append(row)
+
+    validation_report = validate_dataset_rows(rows)
+    manifest = build_dataset_manifest(
+        rows=rows,
+        dataset_name=dataset_name,
+        dataset_version=dataset_version,
+        warnings=warnings,
+    )
+    readiness = analyze_training_readiness(rows)
+
+    dataset_path = output_path / "outcome_dataset.jsonl"
+    manifest_path = output_path / "outcome_manifest.json"
+    validation_path = output_path / "outcome_validation_report.json"
+    report_json_path = output_path / "outcome_collection_report.json"
+    report_md_path = output_path / "outcome_collection_report.md"
+
+    dataset_report = export_dataset_jsonl(rows, str(dataset_path), validate=validate)
+    export_manifest(manifest, str(manifest_path))
+    export_validation_report(validation_report, str(validation_path))
+    readiness_json_path, readiness_md_path = write_training_readiness_reports(
+        readiness,
+        manifest_dir=str(output_path),
+    )
+
+    label_counts = dict(Counter(row.label.value for row in rows))
+    output_files = {
+        "outcome_dataset_jsonl": str(dataset_path) if dataset_path.exists() else None,
+        "outcome_manifest_json": str(manifest_path),
+        "outcome_validation_report_json": str(validation_path),
+        "outcome_collection_report_json": str(report_json_path),
+        "outcome_collection_report_md": str(report_md_path),
+        "training_readiness_report_json": readiness_json_path,
+        "training_readiness_report_md": readiness_md_path,
+    }
+    if dataset_report.status == "failed" and not dataset_path.exists():
+        warnings.append("Outcome dataset JSONL was not written because validation failed.")
+
+    summary: dict[str, Any] = {
+        "schema_version": OUTCOME_COLLECTION_SCHEMA_VERSION,
+        "generated_at": generated_at,
+        "pairs_file": str(pairs_file),
+        "output_dir": str(output_path),
+        "pair_count": len(pairs),
+        "collected_row_count": len(rows),
+        "label_counts": label_counts,
+        "validation_status": validation_report.status,
+        "readiness_status": readiness["status"],
+        "output_files": output_files,
+        "warnings": warnings,
+        "errors": errors,
+    }
+
+    _write_json(report_json_path, summary)
+    report_md_path.write_text(_build_collection_markdown(summary), encoding="utf-8")
+    return summary
 
 
 def _comparison_features(comparison: ComparisonResult) -> dict[str, DatasetValue]:
@@ -215,6 +370,47 @@ def _load_benchmark_json(path: Path) -> dict:
     return loaded
 
 
+def _normalize_pair(pair: dict, index: int) -> dict:
+    baseline_path = pair.get("baseline_json_path")
+    optimized_path = pair.get("optimized_json_path")
+    if not isinstance(baseline_path, str) or not baseline_path.strip():
+        raise ValueError(
+            f"Outcome pair at index {index} requires baseline_json_path."
+        )
+    if not isinstance(optimized_path, str) or not optimized_path.strip():
+        raise ValueError(
+            f"Outcome pair at index {index} requires optimized_json_path."
+        )
+
+    normalized = {
+        "baseline_json_path": baseline_path,
+        "optimized_json_path": optimized_path,
+    }
+    for key in ("row_id", "workload_name"):
+        value = pair.get(key)
+        if value is not None:
+            normalized[key] = str(value)
+    for key in ("hardware", "features", "metadata"):
+        value = pair.get(key)
+        if value is not None:
+            if not isinstance(value, dict):
+                raise ValueError(
+                    f"Outcome pair at index {index} field {key} must be an object."
+                )
+            normalized[key] = value
+    return normalized
+
+
+def _resolve_pair_paths(pair: dict, base_dir: Path) -> dict:
+    resolved = dict(pair)
+    for key in ("baseline_json_path", "optimized_json_path"):
+        path = Path(str(pair[key]))
+        if not path.is_absolute():
+            path = base_dir / path
+        resolved[key] = str(path)
+    return resolved
+
+
 def _derive_row_id(
     baseline_path: Path,
     optimized_path: Path,
@@ -250,10 +446,56 @@ def _write_outcome_artifacts(
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(data, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _build_collection_markdown(summary: dict[str, Any]) -> str:
+    lines = [
+        "# GPUBoost Outcome Collection Report",
+        "",
+        f"Generated: {summary['generated_at']}",
+        f"Pairs file: {summary['pairs_file']}",
+        f"Output directory: {summary['output_dir']}",
+        "",
+        "## Summary",
+        f"- Pairs: {summary['pair_count']}",
+        f"- Collected rows: {summary['collected_row_count']}",
+        f"- Validation: {summary['validation_status']}",
+        f"- Readiness: {summary['readiness_status']}",
+        "",
+        "## Labels",
+    ]
+    label_counts = summary["label_counts"]
+    if label_counts:
+        for label, count in sorted(label_counts.items()):
+            lines.append(f"- {label}: {count}")
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Errors"])
+    if summary["errors"]:
+        for error in summary["errors"]:
+            lines.append(
+                "- "
+                f"pair_index={error.get('pair_index')} "
+                f"row_id={error.get('row_id') or 'none'} "
+                f"error={error.get('error')}"
+            )
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Warnings"])
+    if summary["warnings"]:
+        lines.extend(f"- {warning}" for warning in summary["warnings"])
+    else:
+        lines.append("- none")
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _safe_scalar_mapping(values: dict | None) -> dict[str, DatasetValue]:
@@ -267,6 +509,13 @@ def _safe_scalar_mapping(values: dict | None) -> dict[str, DatasetValue]:
             continue
         safe_values[key_text] = value
     return safe_values
+
+
+def _format_error(error: Exception) -> str:
+    message = str(error)
+    if message:
+        return message
+    return error.__class__.__name__
 
 
 def _workload_mapping(workload_name: str | None) -> dict[str, DatasetValue]:

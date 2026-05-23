@@ -92,6 +92,17 @@ evidence-based optimization tool for CUDA and PyTorch development.
 - Keeps deterministic GPUBoost logic and measured benchmark data as the source
   of truth
 
+### Phase 11: Data Collection and Readiness
+
+- Adds privacy-safe dataset assembly, validation reports, split assignment,
+  and training readiness analysis
+- Collects controlled before/after outcome rows from measured benchmark JSON
+  without executing arbitrary collector commands
+- Includes local controlled workload grids for generating measured outcome
+  pairs across dataloader, AMP, batch-size, and neutral-control cases
+- Phase 11 readiness now gates Phase 12: model training should begin only when
+  the readiness report has no hard blockers
+
 ## Install For Development
 
 ```bash
@@ -384,8 +395,11 @@ data validation, and GPUBoost's own model.
 
 ### Phase 11: Data Collection and Validation
 
-- Future phase for controlled data collection and validation
-- Not implemented in Phase 10
+- Implements privacy-safe data collection, validation, controlled outcome
+  grids, manifests, split assignment, and readiness reports
+- Readiness reports are the gate into Phase 12 training: `ready` means no hard
+  blockers remain; `warning` requires review before proceeding; `not_ready`
+  blocks training
 
 ### Phase 12: GPUBoost Model Training and Integration
 
@@ -448,7 +462,6 @@ The test suite does not require an NVIDIA GPU.
 - `--apply` or original source editing
 - A trained GPUBoost model
 - External LLM provider integrations
-- Phase 11 data collection and validation
 - Phase 12 model training
 - Phase 13 production-system testing
 - Dashboard code

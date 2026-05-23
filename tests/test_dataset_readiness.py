@@ -138,6 +138,72 @@ def test_readiness_reports_are_written(tmp_path) -> None:
     assert "Phase 12 training should not begin until blockers are resolved." in markdown
 
 
+def test_readiness_markdown_warning_message(tmp_path) -> None:
+    rows = [
+        *[
+            _make_row(
+                row_id=f"improved-{index}",
+                label=DatasetLabel(value="improved", source="comparison"),
+            )
+            for index in range(9)
+        ],
+        _make_row(
+            row_id="neutral-1",
+            label=DatasetLabel(value="neutral", source="comparison"),
+        ),
+    ]
+    report = analyze_training_readiness(
+        rows,
+        min_total_rows=5,
+        min_labeled_rows=5,
+        min_known_label_classes=2,
+    )
+
+    _json_path, md_path = write_training_readiness_reports(
+        report,
+        manifest_dir=str(tmp_path),
+    )
+    markdown = (tmp_path / "training_readiness_report.md").read_text(encoding="utf-8")
+
+    assert report["status"] == "warning"
+    assert not report["blockers"]
+    assert md_path.endswith("training_readiness_report.md")
+    assert (
+        "Phase 12 training may proceed cautiously, but warnings should be reviewed first."
+        in markdown
+    )
+
+
+def test_readiness_markdown_ready_message(tmp_path) -> None:
+    rows = [
+        _make_row(
+            row_id="improved-1",
+            label=DatasetLabel(value="improved", source="comparison"),
+        ),
+        _make_row(
+            row_id="neutral-1",
+            label=DatasetLabel(value="neutral", source="comparison"),
+        ),
+    ]
+    report = analyze_training_readiness(
+        rows,
+        min_total_rows=2,
+        min_labeled_rows=2,
+        min_known_label_classes=2,
+    )
+
+    write_training_readiness_reports(report, manifest_dir=str(tmp_path))
+    markdown = (tmp_path / "training_readiness_report.md").read_text(encoding="utf-8")
+
+    assert report["status"] == "ready"
+    assert not report["blockers"]
+    assert "Phase 12 training may begin because no hard blockers remain." in markdown
+    assert (
+        "Phase 12 training should not begin until blockers are resolved."
+        not in markdown
+    )
+
+
 def _make_row(
     row_id: str = "row-001",
     label: DatasetLabel | None = None,

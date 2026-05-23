@@ -40,6 +40,7 @@ def assemble_training_dataset(
     manifest_dir: str = "data/gpuboost/manifests",
     assign_splits: bool = True,
     seed: int = 42,
+    outcome_dataset_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     """Assemble history rows and safe context rows into Phase 11 outputs."""
 
@@ -49,7 +50,16 @@ def assemble_training_dataset(
     manifest_path.mkdir(parents=True, exist_ok=True)
 
     warnings: list[str] = []
-    dataset_rows = _load_history_dataset_rows(history_db_path, warnings)
+    history_rows = _load_history_dataset_rows(history_db_path, warnings)
+    outcome_rows = _load_outcome_dataset_rows(
+        outcome_dataset_paths,
+        output_path,
+    )
+    dataset_rows, dataset_source_counts = _merge_dataset_rows(
+        history_rows=history_rows,
+        outcome_rows=outcome_rows,
+        warnings=warnings,
+    )
     context_rows = _load_external_context_rows(external_context_paths, warnings, output_path)
 
     if assign_splits and dataset_rows:
@@ -100,6 +110,8 @@ def assemble_training_dataset(
         output_files["benchmark_context_jsonl"] = str(benchmark_context_path)
 
     return {
+        "history_row_count": dataset_source_counts["history"],
+        "outcome_row_count": dataset_source_counts["outcome"],
         "dataset_row_count": len(dataset_rows),
         "benchmark_context_row_count": len(context_rows),
         "labeled_count": labeled_count,
@@ -127,6 +139,8 @@ def load_dataset_rows_jsonl(path: str) -> list[DatasetRow]:
             continue
         payload = json.loads(line)
         if isinstance(payload, dict):
+            if _looks_like_benchmark_context_payload(payload):
+                continue
             rows.append(_dataset_row_from_dict(payload))
     return rows
 
@@ -169,6 +183,63 @@ def _load_history_dataset_rows(
         warnings.append(f"No history runs found in: {db_path}")
         return []
     return history_records_to_dataset_rows(history_summary.runs)
+
+
+def _load_outcome_dataset_rows(
+    outcome_dataset_paths: list[str] | None,
+    output_dir: Path,
+) -> list[DatasetRow]:
+    known_paths = _default_outcome_dataset_paths(output_dir)
+    combined_paths = _unique_paths_preserving_order(
+        [*known_paths, *(outcome_dataset_paths or [])]
+    )
+
+    rows: list[DatasetRow] = []
+    for path in combined_paths:
+        file_path = Path(path)
+        if not file_path.exists():
+            continue
+        rows.extend(load_dataset_rows_jsonl(path))
+    return rows
+
+
+def _merge_dataset_rows(
+    history_rows: list[DatasetRow],
+    outcome_rows: list[DatasetRow],
+    warnings: list[str],
+) -> tuple[list[DatasetRow], dict[str, int]]:
+    rows: list[DatasetRow] = []
+    seen_row_ids: set[str] = set()
+    source_counts = {"history": 0, "outcome": 0}
+    duplicate_counts = {"history": 0, "outcome": 0}
+
+    for source_name, source_rows in (
+        ("history", history_rows),
+        ("outcome", outcome_rows),
+    ):
+        for row in source_rows:
+            if row.row_id and row.row_id in seen_row_ids:
+                duplicate_counts[source_name] += 1
+                continue
+            if row.row_id:
+                seen_row_ids.add(row.row_id)
+            rows.append(row)
+            source_counts[source_name] += 1
+
+    if duplicate_counts["history"]:
+        warnings.append(
+            "Skipped "
+            f"{duplicate_counts['history']} duplicate history-derived "
+            "dataset rows by row_id."
+        )
+    if duplicate_counts["outcome"]:
+        warnings.append(
+            "Skipped "
+            f"{duplicate_counts['outcome']} duplicate controlled outcome "
+            "dataset rows by row_id."
+        )
+
+    return rows, source_counts
 
 
 def _load_external_context_rows(
@@ -217,6 +288,11 @@ def _default_context_paths(output_dir: Path) -> list[str]:
     return [str(path) for path in fallback_paths if path.exists()]
 
 
+def _default_outcome_dataset_paths(output_dir: Path) -> list[str]:
+    outcome_path = output_dir / "outcomes" / "outcome_dataset.jsonl"
+    return [str(outcome_path)] if outcome_path.exists() else []
+
+
 def _dataset_row_from_dict(data: dict[str, Any]) -> DatasetRow:
     label_data = data.get("label") if isinstance(data.get("label"), dict) else {}
     privacy_data = data.get("privacy") if isinstance(data.get("privacy"), dict) else {}
@@ -227,15 +303,19 @@ def _dataset_row_from_dict(data: dict[str, Any]) -> DatasetRow:
         schema_version=str(data.get("schema_version") or "dataset.row.v1"),
         source=str(data.get("source") or ""),
         row_type=str(data.get("row_type") or ""),
-        hardware=_scalar_dict(data.get("hardware")),
-        workload=_scalar_dict(data.get("workload")),
-        features=_scalar_dict(data.get("features")),
-        metrics=_scalar_dict(data.get("metrics")),
+        hardware=_safe_dataset_scalar_dict(data.get("hardware")),
+        workload=_safe_dataset_scalar_dict(data.get("workload")),
+        features=_safe_dataset_scalar_dict(data.get("features")),
+        metrics=_safe_dataset_scalar_dict(data.get("metrics")),
         label=DatasetLabel(
             value=str(label_data.get("value") or "unknown"),
             source=str(label_data.get("source") or "unknown"),
-            confidence=label_data.get("confidence") if isinstance(label_data.get("confidence"), int | float) else None,
-            notes=str(label_data.get("notes")) if label_data.get("notes") is not None else None,
+            confidence=(
+                label_data.get("confidence")
+                if isinstance(label_data.get("confidence"), int | float)
+                else None
+            ),
+            notes=_safe_text_or_none(label_data.get("notes")),
         ),
         privacy=DatasetPrivacyFlags(
             contains_raw_source=bool(privacy_data.get("contains_raw_source", False)),
@@ -247,8 +327,10 @@ def _dataset_row_from_dict(data: dict[str, Any]) -> DatasetRow:
         ),
         split=str(data.get("split")) if data.get("split") is not None else None,
         quality_score=data.get("quality_score") if isinstance(data.get("quality_score"), int | float) else None,
-        warnings=[str(item) for item in data.get("warnings", []) if isinstance(item, str)],
-        metadata=_scalar_dict(data.get("metadata")),
+        warnings=[
+            item for item in data.get("warnings", []) if _is_safe_string_value(item)
+        ],
+        metadata=_safe_dataset_scalar_dict(data.get("metadata")),
     )
 
 
@@ -280,6 +362,18 @@ def _scalar_dict(value: Any) -> dict[str, str | int | float | bool | None]:
     }
 
 
+def _safe_dataset_scalar_dict(
+    value: Any,
+) -> dict[str, str | int | float | bool | None]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(key): item
+        for key, item in value.items()
+        if _is_safe_dataset_key(key) and _is_safe_dataset_scalar_value(item)
+    }
+
+
 def _string_dict(value: Any) -> dict[str, str]:
     if not isinstance(value, dict):
         return {}
@@ -288,6 +382,61 @@ def _string_dict(value: Any) -> dict[str, str]:
         for key, item in value.items()
         if item is not None
     }
+
+
+def _looks_like_benchmark_context_payload(data: dict[str, Any]) -> bool:
+    schema_version = str(data.get("schema_version") or "")
+    return schema_version == "dataset.benchmark_context.v1" or (
+        "benchmark_name" in data and "label" not in data
+    )
+
+
+def _is_safe_dataset_key(key: Any) -> bool:
+    normalized = str(key).strip().lower()
+    return normalized not in {
+        "file_contents",
+        "raw_diff",
+        "raw_source",
+        "source_code",
+        "stderr",
+        "stdout",
+        "unified_diff",
+    }
+
+
+def _is_safe_dataset_scalar_value(value: Any) -> bool:
+    if not isinstance(value, str | int | float | bool) and value is not None:
+        return False
+    if isinstance(value, str):
+        return _is_safe_string_value(value)
+    return True
+
+
+def _is_safe_string_value(value: Any) -> bool:
+    return isinstance(value, str) and not (
+        _looks_like_unified_diff(value) or _looks_like_python_source(value)
+    )
+
+
+def _safe_text_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    if _is_safe_string_value(value):
+        return value
+    return None
+
+
+def _looks_like_unified_diff(value: str) -> bool:
+    stripped = value.lstrip()
+    return stripped.startswith("--- ") and "\n+++ " in stripped
+
+
+def _looks_like_python_source(value: str) -> bool:
+    if len(value) < 120 or "\n" not in value:
+        return False
+    source_markers = ("def ", "class ", "import ", "from ")
+    marker_count = sum(1 for marker in source_markers if marker in value)
+    return marker_count >= 2 and ("    " in value or "\n\t" in value)
 
 
 def _attach_external_intake_status(report: dict[str, Any]) -> dict[str, Any]:
@@ -352,3 +501,22 @@ def _unique_preserving_order(values: list[str]) -> list[str]:
         seen.add(value)
         result.append(value)
     return result
+
+
+def _unique_paths_preserving_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        key = _path_dedupe_key(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result
+
+
+def _path_dedupe_key(value: str) -> str:
+    try:
+        return str(Path(value).resolve()).casefold()
+    except OSError:
+        return str(Path(value)).casefold()

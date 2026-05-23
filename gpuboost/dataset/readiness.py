@@ -282,8 +282,18 @@ def _build_markdown(report: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "Phase 12 training should not begin until blockers are resolved.",
+            _phase12_readiness_message(report),
             "",
         ]
     )
     return "\n".join(lines)
+
+
+def _phase12_readiness_message(report: dict[str, Any]) -> str:
+    if report["blockers"]:
+        return "Phase 12 training should not begin until blockers are resolved."
+    if report["status"] == "ready":
+        return "Phase 12 training may begin because no hard blockers remain."
+    if report["status"] == "warning":
+        return "Phase 12 training may proceed cautiously, but warnings should be reviewed first."
+    return "Phase 12 training should not begin until readiness is resolved."

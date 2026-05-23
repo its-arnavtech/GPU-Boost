@@ -1800,6 +1800,77 @@ def test_cli_compare_json_mode_contains_no_human_text(tmp_path, capsys) -> None:
     json.loads(captured.out)
 
 
+def test_cli_dataset_collect_outcomes_human_output(tmp_path, capsys) -> None:
+    pairs_path = _write_outcome_pairs_files(tmp_path)
+    output_dir = tmp_path / "outcomes"
+
+    exit_code = cli_main.main(
+        [
+            "dataset",
+            "collect-outcomes",
+            str(pairs_path),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Outcome Collection" in captured.out
+    assert "Pairs: 1" in captured.out
+    assert "Collected rows: 1" in captured.out
+    assert "Validation: passed" in captured.out
+    assert "- improved: 1" in captured.out
+    assert "outcome_dataset_jsonl" in captured.out
+    assert captured.err == ""
+
+
+def test_cli_dataset_collect_outcomes_json_output(tmp_path, capsys) -> None:
+    pairs_path = _write_outcome_pairs_files(tmp_path)
+    output_dir = tmp_path / "outcomes"
+
+    exit_code = cli_main.main(
+        [
+            "dataset",
+            "collect-outcomes",
+            str(pairs_path),
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["schema_version"] == "dataset.outcome_collection.v1"
+    assert data["command"] == "dataset collect-outcomes"
+    assert data["result"]["collected_row_count"] == 1
+    assert data["result"]["label_counts"] == {"improved": 1}
+    assert "GPUBoost Outcome Collection" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_dataset_collect_outcomes_missing_file_error_json(capsys) -> None:
+    exit_code = cli_main.main(
+        [
+            "dataset",
+            "collect-outcomes",
+            "missing-pairs.json",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["schema_version"] == "dataset.outcome_collection.v1"
+    assert data["result"] is None
+    assert "missing-pairs.json" in data["error"]
+    assert "GPUBoost Outcome Collection" not in captured.out
+    assert captured.err == ""
+
+
 def test_cli_history_list_human_output_with_no_runs(tmp_path, capsys) -> None:
     db_path = tmp_path / "history.db"
 
@@ -2374,6 +2445,29 @@ def _write_compare_files(
         encoding="utf-8",
     )
     return baseline, optimized
+
+
+def _write_outcome_pairs_files(tmp_path):
+    baseline = tmp_path / "baseline.json"
+    optimized = tmp_path / "optimized.json"
+    pairs = tmp_path / "pairs.json"
+    baseline.write_text(json.dumps(_compare_benchmark(30.0)), encoding="utf-8")
+    optimized.write_text(json.dumps(_compare_benchmark(33.0)), encoding="utf-8")
+    pairs.write_text(
+        json.dumps(
+            [
+                {
+                    "row_id": "outcome-001",
+                    "workload_name": "tiny_cli_fixture",
+                    "baseline_json_path": "baseline.json",
+                    "optimized_json_path": "optimized.json",
+                    "hardware": {"gpu_name": "NVIDIA Test GPU"},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return pairs
 
 
 def _complete_compare_benchmark(best_fp16_tflops: float) -> dict:

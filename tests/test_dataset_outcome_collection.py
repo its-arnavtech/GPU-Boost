@@ -11,8 +11,10 @@ import pytest
 from gpuboost.dataset.outcome_collection import (
     collect_outcome_from_benchmark_json,
     collect_outcomes_from_pairs,
+    collect_outcomes_from_pairs_file,
     comparison_result_to_dataset_row,
     comparison_result_to_label,
+    load_outcome_pairs_file,
 )
 from gpuboost.dataset.validation import validate_dataset_rows
 from gpuboost.schemas.comparison import (
@@ -258,6 +260,219 @@ def test_no_command_execution_occurs(tmp_path, monkeypatch) -> None:
     assert comparison.overall_verdict == "improved"
 
 
+def test_load_outcome_pairs_file_supports_list_shape(tmp_path) -> None:
+    pairs_path = tmp_path / "pairs.json"
+    pairs_path.write_text(
+        json.dumps(
+            [
+                {
+                    "row_id": "dataloader_001",
+                    "workload_name": "dataloader_bottleneck",
+                    "baseline_json_path": "baseline.json",
+                    "optimized_json_path": "optimized.json",
+                    "hardware": {"gpu_name": "NVIDIA Test GPU"},
+                    "features": {"batch_size": 32},
+                    "metadata": {"experiment": "local"},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    pairs = load_outcome_pairs_file(str(pairs_path))
+
+    assert pairs == [
+        {
+            "row_id": "dataloader_001",
+            "workload_name": "dataloader_bottleneck",
+            "baseline_json_path": "baseline.json",
+            "optimized_json_path": "optimized.json",
+            "hardware": {"gpu_name": "NVIDIA Test GPU"},
+            "features": {"batch_size": 32},
+            "metadata": {"experiment": "local"},
+        }
+    ]
+
+
+def test_load_outcome_pairs_file_supports_object_with_pairs_shape(tmp_path) -> None:
+    pairs_path = tmp_path / "pairs.json"
+    pairs_path.write_text(
+        json.dumps(
+            {
+                "pairs": [
+                    {
+                        "baseline_json_path": "baseline.json",
+                        "optimized_json_path": "optimized.json",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    pairs = load_outcome_pairs_file(str(pairs_path))
+
+    assert pairs == [
+        {
+            "baseline_json_path": "baseline.json",
+            "optimized_json_path": "optimized.json",
+        }
+    ]
+
+
+def test_load_outcome_pairs_file_missing_required_path_fields_fail(tmp_path) -> None:
+    pairs_path = tmp_path / "pairs.json"
+    pairs_path.write_text(
+        json.dumps([{"baseline_json_path": "baseline.json"}]),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="optimized_json_path"):
+        load_outcome_pairs_file(str(pairs_path))
+
+
+def test_load_outcome_pairs_file_invalid_json_shape_fails(tmp_path) -> None:
+    pairs_path = tmp_path / "pairs.json"
+    pairs_path.write_text(json.dumps({"bad": []}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="list or an object with a pairs list"):
+        load_outcome_pairs_file(str(pairs_path))
+
+
+def test_collect_outcomes_from_pairs_file_collects_improved_row(tmp_path) -> None:
+    pairs_path = _write_pairs_fixture(tmp_path, optimized_value=12.0)
+
+    summary = collect_outcomes_from_pairs_file(
+        str(pairs_path),
+        output_dir=str(tmp_path / "out"),
+    )
+
+    assert summary["pair_count"] == 1
+    assert summary["collected_row_count"] == 1
+    assert summary["label_counts"] == {"improved": 1}
+    assert summary["validation_status"] == "passed"
+    assert summary["errors"] == []
+
+
+def test_collect_outcomes_from_pairs_file_continues_after_one_bad_pair(tmp_path) -> None:
+    baseline_path = tmp_path / "baseline.json"
+    optimized_path = tmp_path / "optimized.json"
+    pairs_path = tmp_path / "pairs.json"
+    _write_json(baseline_path, _benchmark(10.0))
+    _write_json(optimized_path, _benchmark(12.0))
+    pairs_path.write_text(
+        json.dumps(
+            [
+                {
+                    "row_id": "good-row",
+                    "baseline_json_path": "baseline.json",
+                    "optimized_json_path": "optimized.json",
+                },
+                {
+                    "row_id": "bad-row",
+                    "baseline_json_path": "missing.json",
+                    "optimized_json_path": "optimized.json",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    summary = collect_outcomes_from_pairs_file(
+        str(pairs_path),
+        output_dir=str(tmp_path / "out"),
+    )
+
+    assert summary["pair_count"] == 2
+    assert summary["collected_row_count"] == 1
+    assert summary["label_counts"] == {"improved": 1}
+    assert len(summary["errors"]) == 1
+    assert summary["errors"][0]["row_id"] == "bad-row"
+
+
+def test_collect_outcomes_from_pairs_file_writes_output_files(tmp_path) -> None:
+    pairs_path = _write_pairs_fixture(tmp_path, optimized_value=12.0)
+    output_dir = tmp_path / "out"
+
+    collect_outcomes_from_pairs_file(str(pairs_path), output_dir=str(output_dir))
+
+    assert (output_dir / "outcome_dataset.jsonl").exists()
+    assert (output_dir / "outcome_manifest.json").exists()
+    assert (output_dir / "outcome_validation_report.json").exists()
+    assert (output_dir / "outcome_collection_report.json").exists()
+    assert (output_dir / "outcome_collection_report.md").exists()
+    assert (output_dir / "training_readiness_report.json").exists()
+    assert (output_dir / "training_readiness_report.md").exists()
+
+
+def test_collect_outcomes_from_pairs_file_validation_report_is_written(tmp_path) -> None:
+    pairs_path = _write_pairs_fixture(tmp_path, optimized_value=12.0)
+    output_dir = tmp_path / "out"
+
+    collect_outcomes_from_pairs_file(str(pairs_path), output_dir=str(output_dir))
+
+    validation = json.loads(
+        (output_dir / "outcome_validation_report.json").read_text(encoding="utf-8")
+    )
+    assert validation["status"] == "passed"
+    assert validation["row_count"] == 1
+
+
+def test_collect_outcomes_from_pairs_file_counts_labels(tmp_path) -> None:
+    baseline_path = tmp_path / "baseline.json"
+    improved_path = tmp_path / "improved.json"
+    regressed_path = tmp_path / "regressed.json"
+    pairs_path = tmp_path / "pairs.json"
+    _write_json(baseline_path, _benchmark(10.0))
+    _write_json(improved_path, _benchmark(12.0))
+    _write_json(regressed_path, _benchmark(8.0))
+    pairs_path.write_text(
+        json.dumps(
+            [
+                {
+                    "baseline_json_path": "baseline.json",
+                    "optimized_json_path": "improved.json",
+                },
+                {
+                    "baseline_json_path": "baseline.json",
+                    "optimized_json_path": "regressed.json",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    summary = collect_outcomes_from_pairs_file(
+        str(pairs_path),
+        output_dir=str(tmp_path / "out"),
+    )
+
+    assert summary["label_counts"] == {"improved": 1, "regressed": 1}
+
+
+def test_collect_outcomes_from_pairs_file_stores_no_raw_benchmark_json_or_outputs(
+    tmp_path,
+) -> None:
+    pairs_path = _write_pairs_fixture(tmp_path, optimized_value=12.0)
+    output_dir = tmp_path / "out"
+
+    collect_outcomes_from_pairs_file(str(pairs_path), output_dir=str(output_dir))
+
+    row_jsonl = (output_dir / "outcome_dataset.jsonl").read_text(encoding="utf-8")
+    row = json.loads(row_jsonl)
+    forbidden = {
+        "source_code",
+        "\"results\"",
+        "\"metrics\": [",
+    }
+
+    assert all(token not in row_jsonl for token in forbidden)
+    assert _contains_key(row, "raw_source") is False
+    assert _contains_key(row, "raw_diff") is False
+    assert _contains_key(row, "stdout") is False
+    assert _contains_key(row, "stderr") is False
+
+
 def _comparison(
     verdict: str,
     status: str = "ok",
@@ -350,6 +565,29 @@ def _benchmark(value: float) -> dict:
 
 def _write_json(path, data: dict) -> None:  # noqa: ANN001
     path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def _write_pairs_fixture(tmp_path, optimized_value: float):  # noqa: ANN001, ANN201
+    baseline_path = tmp_path / "baseline.json"
+    optimized_path = tmp_path / "optimized.json"
+    pairs_path = tmp_path / "pairs.json"
+    _write_json(baseline_path, _benchmark(10.0))
+    _write_json(optimized_path, _benchmark(optimized_value))
+    pairs_path.write_text(
+        json.dumps(
+            [
+                {
+                    "row_id": "controlled-001",
+                    "workload_name": "tiny_fixture",
+                    "baseline_json_path": "baseline.json",
+                    "optimized_json_path": "optimized.json",
+                    "hardware": {"gpu_name": "fixture gpu"},
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return pairs_path
 
 
 def _contains_key(value: object, target_key: str) -> bool:

@@ -1,27 +1,38 @@
 # Training Readiness Report
 
-Status: not_ready
+Status: ready
 
 ## Row Counts
-- Total rows: 1
-- Labeled rows: 0
+- Total rows: 104
+- Labeled rows: 103
 - Unlabeled rows: 1
 
 ## Labels
+- improved: 42
+- neutral: 26
+- regressed: 35
 - unknown: 1
 
 ## Feature Coverage
 - action_count: 1
 - completed_action_count: 1
+- controlled_grid: 100
 - failed_action_count: 1
 - has_comparison: 1
 - has_diff: 1
 - has_trial: 1
+- improved_metric_count: 103
+- overall_verdict: 103
+- phase: 100
+- regressed_metric_count: 103
+- section_count: 103
 - trial_original_file_unchanged: 1
 - trial_patch_applied: 1
 - trial_status: 1
 - trial_syntax_check_status: 1
 - trial_test_status: 1
+- unchanged_metric_count: 103
+- workload_family: 100
 
 ## Context
 - Context rows: 177
@@ -36,15 +47,10 @@ Status: not_ready
 - techpowerup: {"row_count": 99, "validation_status": "warning"}
 
 ## Blockers
-- Not enough total rows for training.
-- No labeled optimization outcome rows found.
-- No comparison-derived labels found.
+- none
 
 ## Recommendations
-- Run GPUBoost with --save-history on real scripts.
-- Run before/after comparisons to create improved/regressed/neutral labels.
 - Keep TechPowerUp rows as hardware context, not labels.
-- Capture GPU/hardware details consistently in history rows.
 - PyTorch benchmark results folder was missing from collected repo; verify source path or skip for now.
 
-Phase 12 training should not begin until blockers are resolved.
+Phase 12 training may begin because no hard blockers remain.

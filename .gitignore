@@ -55,6 +55,7 @@ gpuboost-report.*
 .env
 .env.*
 !.env.example
+!.env.staging
 !.env.sample
 *.token
 *.secret
@@ -108,6 +109,10 @@ weights/
 # GPUBoost local data intake
 data/gpuboost/raw/
 data/gpuboost/generated/
+data/gpuboost/experiments/*/
+data/gpuboost/experiments/grid_pairs.json
+data/gpuboost/experiments/grid_runner_manifest.json
+!data/gpuboost/experiments/pairs.json
 
 # Temp directories
 tmp/
