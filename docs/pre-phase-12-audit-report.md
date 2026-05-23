@@ -54,7 +54,13 @@ Additional readiness risks:
 
 ## GitHub Issues Created
 
-None. GitHub CLI authentication failed, so issue creation was intentionally skipped.
+- `[high][dataset][phase-12] Remove target-derived comparison fields from Phase 12 training features` - #15 - https://github.com/its-arnavtech/GPU-Boost/issues/15
+- `[medium][dataset][phase-12] Use grouped and stratified splits for controlled outcome rows` - #16 - https://github.com/its-arnavtech/GPU-Boost/issues/16
+- `[medium][security] Stop unignoring .env.staging` - #17 - https://github.com/its-arnavtech/GPU-Boost/issues/17
+- `[medium][dataset][windows] Normalize PowerShell-generated JSON encoding in Phase 11 scripts and manifests` - #18 - https://github.com/its-arnavtech/GPU-Boost/issues/18
+- `[medium][security][dataset] Remove local absolute paths from tracked raw-inventory manifests` - #19 - https://github.com/its-arnavtech/GPU-Boost/issues/19
+- `[medium][cli][security] Redact or opt in to raw diff and trial stdout/stderr in JSON artifacts` - #20 - https://github.com/its-arnavtech/GPU-Boost/issues/20
+- `[low][docs][phase-12] Document the Phase 12 baseline-first training plan and controlled-data limitations` - #21 - https://github.com/its-arnavtech/GPU-Boost/issues/21
 
 ## Local Issue Drafts
 
@@ -70,7 +76,7 @@ The following GitHub-ready issue drafts were written to `docs/pre-phase-12-issue
 
 ## Existing Issues Skipped As Duplicates
 
-None identified locally. Open GitHub issues could not be fetched because GitHub CLI authentication is invalid, so these drafts still need deduplication after re-authentication.
+None. Open GitHub issues were fetched before creation, and no duplicates or similar existing issues were found.
 
 ## No-Issue Findings
 
@@ -82,8 +88,26 @@ None identified locally. Open GitHub issues could not be fetched because GitHub 
 - Broad exception handling observed around optional Rich imports, GPU probes, cache cleanup, and model-provider fallback looked intentional or non-fatal.
 - Some docs contain stale or low-priority wording, but only the Phase 12 baseline/limitations doc gap was elevated to a draft issue.
 
+## Pre-Phase-12 Issues Fixed
+
+- #15: Added safe Phase 12 training feature extraction that filters target-derived, raw/sensitive, identifier, split, label, and privacy fields while preserving reporting data on `DatasetRow`. Tests added in `tests/test_dataset_training_features.py`; readiness now reports the training feature audit.
+- #16: Added deterministic grouped/stratified split assignment so controlled workload families can stay in one split while preserving label balance as much as practical. Tests added in `tests/test_dataset_splitting.py`.
+- #17: Removed the `.env.staging` unignore rule while keeping `.env.example` and `.env.sample` trackable. Verified `.env.staging` is ignored by `.env.*`.
+- #18: Updated the PowerShell outcome runner to capture JSON, validate it, and write UTF-8 without BOM. Normalized the tracked raw-inventory JSON manifest to UTF-8 without BOM and made assembly read UTF-8 BOM manifests safely.
+- #19: Replaced local absolute paths in tracked raw-inventory manifests with repo-relative paths. Verified tracked manifests and docs do not contain private user or workspace absolute paths.
+- #20: Redacted raw diff and trial stdout/stderr from default agent JSON artifacts and added `--include-raw-artifacts` for explicit opt-in. CLI tests cover default redaction and opt-in behavior.
+- #21: Documented that Phase 12 starts with a baseline structured model, must use safe feature extraction, must not train on target-derived fields, treats controlled/third-party data as limited context, and keeps deterministic GPUBoost logic authoritative.
+
+Verification status:
+
+- `python -m ruff check .`: passed.
+- `python -m pytest`: passed, 813 tests.
+- Safety checks found no tracked raw/generated data files, no tracked database/model artifact files, no sensitive-looking modified filenames, and no remaining tracked local absolute paths in manifests/docs.
+
 ## Final Recommendation
 
-Do not start Phase 12 training on the current assembled dataset as-is. Fix or explicitly filter the target-derived comparison fields first. Grouped/stratified validation splits should also be addressed before trusting Phase 12 validation or test metrics.
-
-Proceed to Phase 12 implementation only after the leakage blocker is fixed or the Phase 12 training code has a tested feature allowlist that excludes the leaked fields.
+The pre-Phase-12 blockers identified by this audit have been fixed and tested.
+Phase 12 implementation may proceed with the documented constraints: start with
+a baseline structured model, use the safe training feature extraction layer,
+use grouped validation splits for controlled outcome rows, and keep
+deterministic GPUBoost logic authoritative.

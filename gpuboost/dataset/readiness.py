@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from gpuboost.dataset.training_features import audit_training_feature_leakage
 from gpuboost.dataset.validation import is_hardware_specs_context, validate_no_raw_sensitive_fields
 from gpuboost.schemas.dataset import BenchmarkContextRow, DatasetRow
 
@@ -49,6 +50,12 @@ def analyze_training_readiness(
 
     unsafe_row_count = sum(1 for row in rows if _row_has_unsafe_data(row))
     unsafe_context_count = sum(1 for row in context_rows if _context_row_has_unsafe_data(row))
+    training_feature_audit = audit_training_feature_leakage(rows)
+    leaked_training_feature_count = training_feature_audit["leaked_feature_count"]
+    excluded_training_field_count = sum(
+        len(fields)
+        for fields in training_feature_audit["excluded_fields"].values()
+    )
 
     duplicate_row_id_count = _duplicate_value_count(row.row_id for row in rows if row.row_id)
     duplicate_script_sha256_count = _duplicate_value_count(
@@ -101,12 +108,26 @@ def analyze_training_readiness(
         recommendations.append("Diversify scripts or deduplicate repeated script_sha256 entries.")
     if unsafe_row_count or unsafe_context_count:
         recommendations.append("Remove unsafe rows before Phase 12 training.")
+    if leaked_training_feature_count:
+        blockers.append("Unsafe or target-derived fields would leak into training features.")
+        recommendations.append("Use safe Phase 12 training feature extraction before training.")
+    elif excluded_training_field_count:
+        recommendations.append(
+            "Use safe Phase 12 training feature extraction; reporting rows contain fields excluded from training."
+        )
 
     recommendations = _unique_preserving_order(recommendations)
 
     if blockers:
         status = "not_ready"
-    elif severe_imbalance or not has_trial_features or not has_hardware_features or unlabeled_rows > labeled_rows or unsafe_row_count or unsafe_context_count:
+    elif (
+        severe_imbalance
+        or not has_trial_features
+        or not has_hardware_features
+        or unlabeled_rows > labeled_rows
+        or unsafe_row_count
+        or unsafe_context_count
+    ):
         status = "warning"
     else:
         status = "ready"
@@ -138,6 +159,13 @@ def analyze_training_readiness(
         "duplicates": {
             "duplicate_row_id_count": duplicate_row_id_count,
             "duplicate_script_sha256_count": duplicate_script_sha256_count,
+        },
+        "training_features": {
+            "audit_status": training_feature_audit["status"],
+            "excluded_field_count": excluded_training_field_count,
+            "leaked_feature_count": leaked_training_feature_count,
+            "excluded_fields": training_feature_audit["excluded_fields"],
+            "leaked_fields": training_feature_audit["leaked_fields"],
         },
         "usefulness": {
             "has_enough_rows": has_enough_rows,

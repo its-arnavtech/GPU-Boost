@@ -49,7 +49,9 @@ from gpuboost.dataset.readiness import (
     write_training_readiness_reports,
 )
 from gpuboost.dataset.splitting import (
+    assign_grouped_stratified_splits,
     assign_dataset_splits,
+    split_group_key,
     split_counts,
     validate_split_ratios,
 )
@@ -69,6 +71,14 @@ from gpuboost.dataset.techpowerup_importer import (
     parse_watts,
     run_techpowerup_intake,
 )
+from gpuboost.dataset.training_features import (
+    audit_training_feature_leakage,
+    build_training_matrix,
+    extract_training_features_from_row,
+    extract_training_label_from_row,
+    is_safe_training_feature_name,
+    is_target_derived_feature_name,
+)
 from gpuboost.dataset.validation import (
     is_hardware_specs_context,
     is_scalar_safe,
@@ -80,8 +90,11 @@ from gpuboost.dataset.validation import (
 __all__ = [
     "analyze_training_readiness",
     "assign_dataset_splits",
+    "assign_grouped_stratified_splits",
     "assemble_training_dataset",
+    "audit_training_feature_leakage",
     "build_dataset_manifest",
+    "build_training_matrix",
     "collect_outcome_from_benchmark_json",
     "collect_outcomes_from_pairs",
     "collect_outcomes_from_pairs_file",
@@ -94,6 +107,8 @@ __all__ = [
     "export_dataset_jsonl",
     "export_manifest",
     "export_validation_report",
+    "extract_training_features_from_row",
+    "extract_training_label_from_row",
     "extract_mlcommons_context_rows",
     "extract_techpowerup_gpu_specs",
     "flatten_safe_numeric_metrics",
@@ -110,7 +125,9 @@ __all__ = [
     "load_dataset_rows_jsonl",
     "load_outcome_pairs_file",
     "is_hardware_specs_context",
+    "is_safe_training_feature_name",
     "is_scalar_safe",
+    "is_target_derived_feature_name",
     "normalize_source_name",
     "parse_mlcommons_scalar",
     "parse_bandwidth_gbps",
@@ -127,6 +144,7 @@ __all__ = [
     "derive_series_family",
     "run_mlcommons_intake",
     "run_techpowerup_intake",
+    "split_group_key",
     "split_counts",
     "validate_benchmark_context_rows",
     "validate_dataset_rows",

@@ -6,7 +6,7 @@ Generated at: 2026-05-22T14:51:34.6358371-05:00
 
 ### MLCommons inference_results_v6.0
 - Repo URL: https://github.com/mlcommons/inference_results_v6.0
-- Saved under: C:\GPU-Boost\data\gpuboost\raw\mlcommons\inference_results_v6.0
+- Saved under: data/gpuboost/raw/mlcommons/inference_results_v6.0
 - Branch: main
 - Commit: 4d3916ac9cf474b679cdfcf492d43a0559418ad1
 - Requested folders: closed/NVIDIA, closed/AMD, closed/Google, closed/CoreWeave
@@ -20,7 +20,7 @@ Generated at: 2026-05-22T14:51:34.6358371-05:00
 
 ### PyTorch benchmark
 - Repo URL: https://github.com/pytorch/benchmark
-- Saved under: C:\GPU-Boost\data\gpuboost\raw\pytorch\benchmark
+- Saved under: data/gpuboost/raw/pytorch/benchmark
 - Branch: main
 - Commit: 3568dd6898f28439eb76e692efb0362fd76b6259
 - Requested folders: results

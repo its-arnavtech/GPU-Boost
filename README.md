@@ -102,6 +102,8 @@ evidence-based optimization tool for CUDA and PyTorch development.
   pairs across dataloader, AMP, batch-size, and neutral-control cases
 - Phase 11 readiness now gates Phase 12: model training should begin only when
   the readiness report has no hard blockers
+- Phase 12 training must use the safe training feature extraction layer, not
+  raw `DatasetRow.to_dict()` output
 
 ## Install For Development
 
@@ -403,8 +405,18 @@ data validation, and GPUBoost's own model.
 
 ### Phase 12: GPUBoost Model Training and Integration
 
-- Future phase to train and integrate GPUBoost's own model
-- Not implemented in Phase 10
+- Future phase to train and integrate GPUBoost's own model, starting with a
+  baseline structured model rather than fine-tuning
+- Training must use safe feature extraction and must not train on
+  target-derived comparison fields such as verdicts, before/after metrics,
+  deltas, labels, raw diffs, stdout, or stderr
+- Controlled outcome data is useful for baseline learning, but it is limited:
+  controlled rows are synthetic workload measurements, not real user-script
+  outcomes
+- Third-party benchmark data is context and provenance, not direct GPUBoost
+  labels
+- The model may rank or score recommendations, but must not apply patches
+  directly; deterministic GPUBoost logic remains authoritative
 
 ### Phase 13: Production System Testing
 
