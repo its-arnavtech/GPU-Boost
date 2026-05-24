@@ -54,7 +54,7 @@ def run_trial_test_command(
             capture_output=True,
             text=True,
             timeout=timeout_sec,
-            shell=True,
+            shell=True,  # nosec B602
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
