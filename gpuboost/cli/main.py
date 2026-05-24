@@ -161,6 +161,11 @@ def build_parser() -> argparse.ArgumentParser:
     agent_optimize_parser = agent_subparsers.add_parser(
         "optimize",
         help="Prepare an agent optimization workflow.",
+        description=(
+            "Prepare a deterministic, review-only optimization workflow. "
+            "With --model-artifact, local generated model predictions are "
+            "advisory-only and cannot apply patches."
+        ),
     )
     agent_optimize_parser.add_argument(
         "script_path",
@@ -197,7 +202,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model-artifact",
         dest="model_artifact_path",
         help=(
-            "Use a local trained model artifact for advisory-only inference; "
+            "Use a local/generated model artifact for advisory-only inference; "
             "model predictions cannot apply patches."
         ),
     )
@@ -295,6 +300,18 @@ def build_parser() -> argparse.ArgumentParser:
     model_parser = subparsers.add_parser(
         "model",
         help="Run local model training/evaluation workflows.",
+        description=(
+            "Run local model lifecycle workflows. Model predictions are "
+            "advisory-only, artifacts are local/generated files, and models "
+            "cannot apply patches."
+        ),
+        epilog=(
+            "Lifecycle commands: evaluate-baselines, train-neural, "
+            "train-neural --save-artifact, list-artifacts, show-artifact, "
+            "check-artifact, validate-artifact, predict-artifact. "
+            "--save-artifact is explicit. check-artifact is a read-only "
+            "quality gate before optional advisory agent use."
+        ),
     )
     model_subparsers = model_parser.add_subparsers(dest="model_command")
 
@@ -303,7 +320,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Evaluate safe structured baseline models without saving artifacts.",
         description=(
             "Evaluate dependency-free baselines on safe encoded training data. "
-            "This command does not train a neural model or save model artifacts."
+            "This command does not train a neural model or save model artifacts. "
+            "Model predictions are advisory only and cannot apply patches."
         ),
     )
     evaluate_baselines_parser.add_argument(
@@ -328,7 +346,8 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Train a small local MLP from scratch on safe encoded features. "
             "Artifacts are local generated files and are saved only with "
-            "the explicit --save-artifact flag."
+            "the explicit --save-artifact flag. Any later model predictions "
+            "are advisory only and cannot apply patches."
         ),
     )
     train_neural_parser.add_argument(
@@ -371,7 +390,10 @@ def build_parser() -> argparse.ArgumentParser:
     train_neural_parser.add_argument(
         "--save-artifact",
         action="store_true",
-        help="Explicitly save a local generated model artifact.",
+        help=(
+            "Explicitly save a local generated model artifact; without this "
+            "flag, training writes reports only."
+        ),
     )
     train_neural_parser.add_argument(
         "--artifact-dir",
@@ -387,7 +409,7 @@ def build_parser() -> argparse.ArgumentParser:
         "list-artifacts",
         help="List local generated model artifacts.",
         description=(
-            "List local generated model artifact manifests. This command only "
+            "List local/generated model artifact manifests. This command only "
             "reads manifests and does not inspect model weights."
         ),
     )
@@ -407,7 +429,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show a safe summary for one local model artifact.",
         description=(
             "Show manifest metrics and validation status without printing model "
-            "weights, raw source, raw diffs, stdout, or stderr."
+            "weights, raw source, raw diffs, stdout, or stderr. Artifact "
+            "predictions are advisory only and cannot apply patches."
         ),
     )
     show_artifact_parser.add_argument("manifest_path")
@@ -421,7 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
         "check-artifact",
         help="Run read-only quality gates for a local model artifact.",
         description=(
-            "Validate a local model artifact and check quality gates. "
+            "Validate a local model artifact and run read-only quality gates. "
             "This command does not train, mutate files, or select artifacts "
             "for the agent automatically."
         ),
@@ -434,7 +457,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--min-test-macro-f1",
         type=float,
         default=None,
-        help="Require test macro F1 to be at least this value when available.",
+        help="Quality gates: require test macro F1 to be at least this value.",
     )
     check_artifact_parser.add_argument(
         "--require-beats-baseline",
@@ -454,9 +477,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_artifact_parser = model_subparsers.add_parser(
         "validate-artifact",
-        help="Validate a saved local generated model artifact manifest.",
+        help="Validate a saved local/generated model artifact manifest.",
+        description=(
+            "Validate one local/generated artifact manifest and referenced "
+            "files. This command does not train, mutate files, or apply patches."
+        ),
     )
-    validate_artifact_parser.add_argument("manifest_path")
+    validate_artifact_parser.add_argument(
+        "manifest_path",
+        help="Local/generated artifact manifest to validate.",
+    )
     validate_artifact_parser.add_argument(
         "--json",
         action="store_true",
@@ -468,10 +498,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run advisory local prediction from a saved model artifact.",
         description=(
             "Run local prediction from safe feature JSON. Predictions are "
-            "advisory only and cannot apply patches."
+            "advisory-only and cannot apply patches."
         ),
     )
-    predict_artifact_parser.add_argument("manifest_path")
+    predict_artifact_parser.add_argument(
+        "manifest_path",
+        help="Local/generated artifact manifest to load for advisory prediction.",
+    )
     predict_artifact_parser.add_argument(
         "--features-json",
         help="JSON object of safe feature values.",
@@ -963,10 +996,11 @@ def _run_model_train_neural(args: argparse.Namespace) -> int:
     result["patch_application_allowed"] = False
     if artifact_manifest is not None:
         manifest_path = artifact_manifest.metadata.get("manifest_path")
-        result["artifact_manifest"] = manifest_path
-        result["artifact_manifest_path"] = manifest_path
         if isinstance(manifest_path, str):
-            validation = validate_model_artifact(manifest_path)
+            portable_manifest_path = Path(manifest_path).as_posix()
+            result["artifact_manifest"] = portable_manifest_path
+            result["artifact_manifest_path"] = portable_manifest_path
+            validation = validate_model_artifact(portable_manifest_path)
             result["artifact_validation_status"] = validation.get("status")
     if args.json:
         print(
@@ -1037,6 +1071,7 @@ def _run_model_check_artifact(args: argparse.Namespace) -> int:
 
 def _run_model_validate_artifact(args: argparse.Namespace) -> int:
     result = validate_model_artifact(args.manifest_path)
+    result["manifest_path"] = args.manifest_path
     if args.json:
         print(
             json.dumps(
@@ -1456,6 +1491,7 @@ def render_model_evaluate_baselines_human(result: dict[str, object]) -> str:
     summary = summary if isinstance(summary, dict) else {}
     lines = [
         "GPUBoost Baseline Model Evaluation",
+        f"Status: {result.get('status') or 'unknown'}",
         f"Rows: {summary.get('encoded_row_count', 0)} encoded "
         f"of {summary.get('row_count', 0)} total",
         f"Labels: {_format_training_counts(summary.get('label_counts'))}",
@@ -1496,7 +1532,8 @@ def render_model_evaluate_baselines_human(result: dict[str, object]) -> str:
         [
             "",
             "Safety: no production model artifact was saved and no agent "
-            "integration was changed.",
+            "integration was changed. Model predictions are advisory only "
+            "and cannot apply patches.",
         ]
     )
     return "\n".join(lines)
@@ -1577,12 +1614,14 @@ def render_model_train_neural_human(result: dict[str, object]) -> str:
     if isinstance(manifest_path, str) and manifest_path:
         safety = (
             "Safety: artifact saved only because --save-artifact was provided; "
-            "model predictions remain advisory and cannot apply patches."
+            "model predictions remain advisory-only and cannot apply patches."
         )
     else:
         safety = (
-            "Safety: no production model artifact was saved and no agent "
-            "integration was changed."
+            "Safety: no production model artifact was saved because "
+            "--save-artifact was not provided; no agent integration was "
+            "changed. Model predictions are advisory-only and cannot apply "
+            "patches."
         )
     lines.extend(["", safety])
     return "\n".join(lines)
@@ -1605,6 +1644,7 @@ def render_model_list_artifacts_human(result: dict[str, object]) -> str:
     artifacts = artifacts if isinstance(artifacts, list) else []
     lines = [
         "GPUBoost Model Artifacts",
+        "Status: ok",
         f"Found: {result.get('artifact_count', len(artifacts))}",
     ]
     for artifact in artifacts:
@@ -1625,8 +1665,17 @@ def render_model_list_artifacts_human(result: dict[str, object]) -> str:
                 f"{_format_yes_no(artifact.get('target_met') is True)}",
                 "  validation status: "
                 f"{artifact.get('validation_status') or 'unknown'}",
+                "  next: python -m gpuboost model show-artifact "
+                f"{artifact.get('manifest_path') or '<manifest>'}",
             ]
         )
+    lines.extend(
+        [
+            "",
+            "Safety: artifacts are local/generated files; model predictions "
+            "are advisory-only and cannot apply patches.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -1654,13 +1703,29 @@ def render_model_show_artifact_human(summary: dict[str, object]) -> str:
     if isinstance(errors, list) and errors:
         lines.extend(["", "Errors:"])
         lines.extend(f"- {error}" for error in errors)
+    manifest_path = summary.get("manifest_path") or "<manifest>"
+    lines.extend(
+        [
+            "",
+            "Next steps:",
+            f"- Validate: python -m gpuboost model validate-artifact {manifest_path}",
+            f"- Quality gate: python -m gpuboost model check-artifact {manifest_path}",
+            "",
+            "Safety: artifacts are local/generated files; model predictions "
+            "are advisory-only and cannot apply patches.",
+        ]
+    )
     return "\n".join(lines)
 
 
 def render_model_check_artifact_human(result: dict[str, object]) -> str:
+    summary = result.get("summary")
+    summary = summary if isinstance(summary, dict) else {}
+    manifest_path = summary.get("manifest_path") or "<manifest>"
     lines = [
         "GPUBoost Model Artifact Check",
         f"Status: {result.get('status') or 'unknown'}",
+        f"Manifest: {manifest_path}",
     ]
     checks = result.get("checks")
     if isinstance(checks, list) and checks:
@@ -1672,6 +1737,17 @@ def render_model_check_artifact_human(result: dict[str, object]) -> str:
                     f"{check.get('name')}: {check.get('status')} "
                     f"({check.get('message')})"
                 )
+    lines.extend(
+        [
+            "",
+            "Next steps:",
+            f"- Inspect: python -m gpuboost model show-artifact {manifest_path}",
+            f"- Validate: python -m gpuboost model validate-artifact {manifest_path}",
+            "",
+            "Safety: check-artifact is a read-only quality gate; model "
+            "predictions are advisory-only and cannot apply patches.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -1685,7 +1761,11 @@ def render_model_safety_check_human(result: dict[str, object]) -> str:
     for key in (
         "generated_dir_ignored",
         "artifact_extensions_ignored",
+        "local_db_artifacts_ignored",
+        "cache_dirs_ignored",
+        "env_secret_patterns_ignored",
         "raw_data_ignored",
+        "patch_application_allowed",
         "model_patch_application_allowed_false_documented",
         "provider_patch_application_allowed_false",
         "no_default_artifact_path_required",
@@ -1702,6 +1782,7 @@ def render_model_validate_artifact_human(result: dict[str, object]) -> str:
     lines = [
         "GPUBoost Model Artifact Validation",
         f"Status: {result.get('status') or 'unknown'}",
+        f"Manifest: {result.get('manifest_path') or 'unknown'}",
     ]
     summary = result.get("manifest_summary")
     if isinstance(summary, dict) and summary:
@@ -1720,6 +1801,17 @@ def render_model_validate_artifact_human(result: dict[str, object]) -> str:
     if isinstance(warnings, list) and warnings:
         lines.extend(["", "Warnings:"])
         lines.extend(f"- {warning}" for warning in warnings)
+    lines.extend(
+        [
+            "",
+            "Next steps:",
+            "- Quality gate: python -m gpuboost model check-artifact "
+            f"{result.get('manifest_path') or '<manifest>'}",
+            "",
+            "Safety: validation is read-only; model predictions are "
+            "advisory-only and cannot apply patches.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -1742,6 +1834,13 @@ def render_model_predict_artifact_human(result: dict[str, object]) -> str:
     errors = result.get("error")
     if errors:
         lines.extend(["", "Error:", f"- {errors}"])
+    lines.extend(
+        [
+            "",
+            "Safety: artifact predictions are advisory-only and cannot apply "
+            "patches or override deterministic GPUBoost checks.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -2407,6 +2506,10 @@ def agent_status_to_exit_code(status: str) -> int:
 
 
 def _format_exception_message(error: Exception) -> str:
+    if isinstance(error, json.JSONDecodeError):
+        return f"Invalid JSON: {error.msg} at line {error.lineno} column {error.colno}"
+    if isinstance(error, FileNotFoundError) and error.filename:
+        return f"File not found: {error.filename}"
     message = str(error)
     if message:
         return message
@@ -2586,8 +2689,8 @@ def _format_model_output(model: dict[str, object]) -> str:
             f"- Confidence: {_format_optional_score(_model_prediction_confidence(model))}",
             "- Patch application allowed: "
             f"{_format_yes_no(bool(model.get('patch_application_allowed')))}",
-            "- Safety: model prediction is advisory only; deterministic checks "
-            "remain authoritative.",
+            "- Safety: model prediction is advisory only, cannot apply patches, "
+            "and deterministic checks remain authoritative.",
         ]
     )
 

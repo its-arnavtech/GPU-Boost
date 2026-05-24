@@ -12,14 +12,23 @@ commands, apply patches, or modify source files.
 Create a baseline benchmark JSON file:
 
 ```bash
-gpuboost benchmark --quick --json > baseline.json
+gpuboost benchmark --quick --json | tee baseline.json
 ```
 
 After making and reviewing your own optimization changes, create an optimized
 benchmark JSON file:
 
 ```bash
-gpuboost benchmark --quick --json > optimized.json
+gpuboost benchmark --quick --json | tee optimized.json
+```
+
+On Windows PowerShell, avoid plain redirection for JSON files. Capture stdout
+and write UTF-8 without BOM:
+
+```powershell
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$json = gpuboost benchmark --quick --json
+[System.IO.File]::WriteAllText((Join-Path (Get-Location) "baseline.json"), $json + [Environment]::NewLine, $utf8NoBom)
 ```
 
 ## Compare Results

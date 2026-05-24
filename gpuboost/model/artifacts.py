@@ -109,7 +109,7 @@ def save_neural_model_artifact(
         },
     )
     _write_json(manifest_file, manifest.to_dict())
-    manifest.metadata["manifest_path"] = str(manifest_file)
+    manifest.metadata["manifest_path"] = str(manifest_file.resolve())
     return manifest
 
 
@@ -118,7 +118,9 @@ def load_model_artifact_manifest(path: str) -> ModelArtifactManifest:
 
     manifest_path = Path(path)
     if not manifest_path.exists():
-        raise FileNotFoundError(f"Model artifact manifest not found: {path}")
+        raise FileNotFoundError(
+            f"Model artifact manifest not found: {format_path_for_display(manifest_path)}"
+        )
     data = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("Model artifact manifest must be a JSON object.")
@@ -221,7 +223,7 @@ def summarize_model_artifact(manifest_path: str) -> dict[str, Any]:
 
     validation = validate_model_artifact(manifest_path)
     base_summary: dict[str, Any] = {
-        "manifest_path": _display_path(Path(manifest_path)),
+        "manifest_path": format_path_for_display(manifest_path),
         "artifact_type": None,
         "created_at": None,
         "model_name": None,
@@ -417,10 +419,13 @@ def _artifact_warnings(result: NeuralSearchResult | NeuralTrainingResult) -> lis
     return list(result.warnings)
 
 
-def _display_path(path: Path) -> str:
+def format_path_for_display(path: str | Path) -> str:
+    """Return a report-safe path without leaking private absolute directories."""
+
+    display_path = Path(path)
     try:
-        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+        return display_path.resolve().relative_to(Path.cwd().resolve()).as_posix()
     except ValueError:
-        if path.is_absolute():
-            return (Path(path.parent.name) / path.name).as_posix()
-        return path.as_posix()
+        if display_path.is_absolute():
+            return (Path(display_path.parent.name) / display_path.name).as_posix()
+        return display_path.as_posix().replace("\\", "/")

@@ -60,6 +60,8 @@ patches, edit files, override deterministic checks, or call external APIs.
 Missing or invalid artifacts produce a clean model fallback/error result instead
 of a traceback. The trained provider reports
 `patch_application_allowed=false`.
+Human output includes the same advisory-only safety note whenever a model
+artifact contributes a prediction.
 
 Artifacts can be discovered and checked before agent use:
 

@@ -1,10 +1,14 @@
+[CmdletBinding()]
 param(
     [string]$Dataset = "data/gpuboost/generated/training_dataset.jsonl",
     [string]$OutputDir = "data/gpuboost/generated/model_training",
-    [string]$AgentScript = "examples/bad_train_sample.txt"
+    [string]$AgentScript = "examples/bad_train_sample.txt",
+    [string]$PythonExe = "python"
 )
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
+Set-StrictMode -Version 2.0
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 function Write-Section {
@@ -19,14 +23,14 @@ function Invoke-JsonCommand {
         [string[]]$Arguments
     )
     Write-Section $Name
-    $output = & python -m gpuboost @Arguments
+    $output = & $PythonExe -m gpuboost @Arguments
     if ($LASTEXITCODE -ne 0) {
         Write-Host "FAIL: $Name"
         Write-Host $output
         exit $LASTEXITCODE
     }
     Write-Host "PASS: $Name"
-    return ($output | Out-String | ConvertFrom-Json)
+    return ($output | Out-String | ConvertFrom-Json -ErrorAction Stop)
 }
 
 Write-Section "Phase 12 Model Workflow Smoke"

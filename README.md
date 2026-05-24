@@ -118,6 +118,15 @@ On Windows, activate the virtual environment first if desired:
 .\.venv\Scripts\activate
 ```
 
+## Documentation
+
+- [Model Training](docs/model-training.md)
+- [Agent CLI](docs/agent-cli.md)
+- [Demo Workflow](docs/demo-workflow.md)
+- [Release Checklist](docs/release-checklist.md)
+- [Phase 13 Testing](docs/phase-13-testing.md)
+- [Phase 13 Release Readiness](docs/phase-13-release-readiness.md)
+
 ## Usage
 
 Show GPU and system information:
@@ -198,6 +207,7 @@ gpuboost agent optimize train.py --trial --test "pytest"
 gpuboost agent optimize train.py --save-history
 python -m gpuboost agent optimize --model
 python -m gpuboost agent optimize --model --json
+python -m gpuboost agent optimize train.py --model-artifact data/gpuboost/generated/model_training/artifacts/<id>/manifest.json
 python -m gpuboost agent optimize .\examples\bad_train_sample.txt --model --trial --json
 ```
 
@@ -234,6 +244,9 @@ python -m gpuboost agent optimize train.py --model-artifact data/gpuboost/genera
 
 The model prediction is advisory only. It cannot apply patches, edit files, or
 override deterministic checks, trials, tests, or benchmark evidence.
+Artifacts are local/generated files. `--save-artifact` must be passed
+explicitly when training, and `model check-artifact` is the read-only quality
+gate to use before optional advisory agent runs.
 
 JSON output uses schema version `agent.optimize.v1` and includes
 `schema_version`, `command`, `result`, `report`, `artifacts.diff`, and
@@ -286,10 +299,19 @@ treat it as project Python code.
 Compare saved benchmark JSON files:
 
 ```bash
-gpuboost benchmark --quick --json > baseline.json
-gpuboost benchmark --quick --json > optimized.json
+gpuboost benchmark --quick --json | tee baseline.json
+gpuboost benchmark --quick --json | tee optimized.json
 gpuboost compare baseline.json optimized.json
 gpuboost compare baseline.json optimized.json --json
+```
+
+In Windows PowerShell, avoid plain redirection for JSON files. Capture stdout
+and write UTF-8 without BOM:
+
+```powershell
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$json = gpuboost benchmark --quick --json
+[System.IO.File]::WriteAllText((Join-Path (Get-Location) "baseline.json"), $json + [Environment]::NewLine, $utf8NoBom)
 ```
 
 Comparison JSON uses schema version `comparison.v1`. The command compares
@@ -491,6 +513,10 @@ data validation, and GPUBoost's own model.
 - End-to-end CLI smoke tests
 - CPU-only CI compatibility
 - Guarantee original files are not modified by default
+- Cross-platform PowerShell and path handling checks
+- Security, artifact, and data leak audit tests
+- CLI UX and clean JSON error-message polish
+- Demo workflow, release checklist, and Phase 13 testing documentation
 
 ## Architecture Direction
 
@@ -536,6 +562,5 @@ The test suite does not require an NVIDIA GPU.
 - `--apply` or original source editing
 - A bundled/default trained GPUBoost model
 - External LLM provider integrations
-- Phase 13 production-system testing
 - Dashboard code
 - Daemon code
