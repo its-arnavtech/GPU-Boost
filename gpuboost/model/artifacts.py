@@ -205,6 +205,87 @@ def validate_model_artifact(manifest_path: str) -> dict[str, Any]:
     }
 
 
+def find_model_artifact_manifests(
+    artifacts_dir: str = DEFAULT_ARTIFACT_DIR,
+) -> list[str]:
+    """Return sorted manifest paths under an artifact directory."""
+
+    root = Path(artifacts_dir)
+    if not root.exists() or not root.is_dir():
+        return []
+    return sorted(str(path) for path in root.rglob("manifest.json") if path.is_file())
+
+
+def summarize_model_artifact(manifest_path: str) -> dict[str, Any]:
+    """Return a JSON-safe summary for one local model artifact."""
+
+    validation = validate_model_artifact(manifest_path)
+    base_summary: dict[str, Any] = {
+        "manifest_path": _display_path(Path(manifest_path)),
+        "artifact_type": None,
+        "created_at": None,
+        "model_name": None,
+        "labels": [],
+        "feature_count": 0,
+        "validation_macro_f1": None,
+        "test_macro_f1": None,
+        "baseline_macro_f1": None,
+        "beats_baseline": False,
+        "target_macro_f1": None,
+        "target_met": False,
+        "warnings": [],
+        "validation_status": validation.get("status", "error"),
+        "validation_errors": validation.get("errors", []),
+    }
+    try:
+        manifest = load_model_artifact_manifest(manifest_path)
+    except (FileNotFoundError, ValueError, TypeError, json.JSONDecodeError) as error:
+        base_summary["validation_status"] = "error"
+        errors = base_summary["validation_errors"]
+        if isinstance(errors, list) and str(error) not in errors:
+            errors.append(str(error))
+        return base_summary
+
+    base_summary.update(
+        {
+            "artifact_type": manifest.artifact_type,
+            "created_at": manifest.created_at,
+            "model_name": manifest.model_name,
+            "labels": list(manifest.labels),
+            "feature_count": len(manifest.feature_names),
+            "validation_macro_f1": manifest.validation_macro_f1,
+            "test_macro_f1": manifest.test_macro_f1,
+            "baseline_macro_f1": manifest.baseline_macro_f1,
+            "beats_baseline": manifest.beats_baseline,
+            "target_macro_f1": manifest.target_macro_f1,
+            "target_met": manifest.target_met,
+            "warnings": list(manifest.warnings),
+            "validation_status": validation.get("status", "error"),
+            "validation_errors": validation.get("errors", []),
+        }
+    )
+    return base_summary
+
+
+def list_model_artifacts(
+    artifacts_dir: str = DEFAULT_ARTIFACT_DIR,
+) -> list[dict[str, Any]]:
+    """Return summaries for all discovered local model artifacts."""
+
+    summaries = [
+        summarize_model_artifact(manifest_path)
+        for manifest_path in find_model_artifact_manifests(artifacts_dir)
+    ]
+    return sorted(
+        summaries,
+        key=lambda item: (
+            str(item.get("created_at") or ""),
+            str(item.get("manifest_path") or ""),
+        ),
+        reverse=True,
+    )
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -334,3 +415,12 @@ def _artifact_metrics(
 
 def _artifact_warnings(result: NeuralSearchResult | NeuralTrainingResult) -> list[str]:
     return list(result.warnings)
+
+
+def _display_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(Path.cwd().resolve()).as_posix()
+    except ValueError:
+        if path.is_absolute():
+            return (Path(path.parent.name) / path.name).as_posix()
+        return path.as_posix()

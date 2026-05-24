@@ -60,6 +60,14 @@ patches, edit files, override deterministic checks, or call external APIs.
 Missing or invalid artifacts produce a clean model fallback/error result instead
 of a traceback.
 
+Artifacts can be discovered and checked before agent use:
+
+```bash
+python -m gpuboost model list-artifacts
+python -m gpuboost model show-artifact data/gpuboost/generated/model_training/artifacts/<id>/manifest.json
+python -m gpuboost model check-artifact data/gpuboost/generated/model_training/artifacts/<id>/manifest.json --min-test-macro-f1 0.75 --require-beats-baseline
+```
+
 The demo file `examples/bad_train_sample.txt` is intentionally kept as `.txt`
 so project linters do not treat it as Python:
 
@@ -188,7 +196,8 @@ workspace.
 Phase 7 implements the safe trial workspace. Phase 9 adds optional local
 history. Phase 10 adds the local model interface and fallback provider. Phase
 12.5 allows a saved local model artifact to provide advisory predictions in the
-agent report path.
+agent report path. Phase 12.6 adds read-only local artifact lifecycle commands:
+`model list-artifacts`, `model show-artifact`, and `model check-artifact`.
 
 `--save-history` stores a local SQLite history record under
 `~/.gpuboost/gpuboost.db` by default. It stores script path, script SHA256,
@@ -204,6 +213,11 @@ GPUBoost advisor, trial workspace, syntax checks, explicit tests, and measured
 benchmark data remain authoritative. The model may rank, score, or predict
 confidence, but it cannot apply patches or override measured results. See
 [Local Model Interface](model-interface.md).
+
+Generated model artifacts live under the ignored
+`data/gpuboost/generated/model_training/artifacts/` directory by default. They
+are local files only; GPUBoost does not upload them, call external model APIs,
+or fine-tune an LLM.
 
 ## Exit Codes
 

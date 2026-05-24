@@ -2343,6 +2343,10 @@ def test_cli_model_train_neural_save_artifact_and_validate_predict(
 
     assert exit_code == 0
     assert manifest_path.endswith("manifest.json")
+    assert data["result"]["artifact_manifest_path"] == manifest_path
+    assert data["result"]["artifact_validation_status"] == "ok"
+    assert data["result"]["patch_application_allowed"] is False
+    assert "state_dict" not in captured.out
     assert (artifact_dir / "fixture" / "manifest.json").exists()
 
     validate_exit = cli_main.main(
@@ -2369,6 +2373,145 @@ def test_cli_model_train_neural_save_artifact_and_validate_predict(
     assert predict_output["result"]["status"] == "ok"
     assert predict_output["result"]["predictions"][0]["label"]
     assert predict_output["result"]["predictions"][0]["confidence"] is not None
+
+
+def test_cli_model_train_neural_save_artifact_human_output_includes_next_steps(
+    tmp_path,
+    capsys,
+) -> None:
+    from gpuboost.model.neural import torch_available
+
+    if not torch_available():
+        pytest.skip("PyTorch is unavailable.")
+    dataset_path = _write_training_dataset_jsonl(tmp_path)
+    output_dir = tmp_path / "model_training"
+    artifact_dir = tmp_path / "artifacts"
+
+    exit_code = cli_main.main(
+        [
+            "model",
+            "train-neural",
+            "--dataset",
+            str(dataset_path),
+            "--output-dir",
+            str(output_dir),
+            "--artifact-dir",
+            str(artifact_dir),
+            "--artifact-name",
+            "fixture-human",
+            "--max-epochs",
+            "3",
+            "--hidden-sizes",
+            "8",
+            "--save-artifact",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Artifact:" in captured.out
+    assert "fixture-human" in captured.out
+    assert "python -m gpuboost model validate-artifact" in captured.out
+    assert "python -m gpuboost agent optimize <script> --model-artifact" in captured.out
+    assert "- Patch application allowed: no" in captured.out
+
+
+def test_cli_model_list_artifacts_human_output(tmp_path, capsys) -> None:
+    _write_cli_manifest_fixture(tmp_path / "fixture")
+
+    exit_code = cli_main.main(
+        ["model", "list-artifacts", "--artifacts-dir", str(tmp_path)]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Model Artifacts" in captured.out
+    assert "Found: 1" in captured.out
+    assert "validation macro F1: 0.8000" in captured.out
+    assert "validation status: ok" in captured.out
+    assert "state_dict" not in captured.out
+
+
+def test_cli_model_list_artifacts_json_output(tmp_path, capsys) -> None:
+    _write_cli_manifest_fixture(tmp_path / "fixture")
+
+    exit_code = cli_main.main(
+        ["model", "list-artifacts", "--artifacts-dir", str(tmp_path), "--json"]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["schema_version"] == "training.model_artifacts.list.v1"
+    assert data["command"] == "model list-artifacts"
+    assert data["result"]["artifact_count"] == 1
+    assert data["result"]["artifacts"][0]["validation_status"] == "ok"
+    assert "state_dict" not in captured.out
+    assert "model.pt" not in captured.out
+
+
+def test_cli_model_show_artifact_human_output(tmp_path, capsys) -> None:
+    manifest_path = _write_cli_manifest_fixture(tmp_path / "fixture")
+
+    exit_code = cli_main.main(["model", "show-artifact", str(manifest_path)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Model Artifact" in captured.out
+    assert "Status: ok" in captured.out
+    assert "Labels: improved, regressed" in captured.out
+    assert "Feature count: 1" in captured.out
+
+
+def test_cli_model_show_artifact_json_output(tmp_path, capsys) -> None:
+    manifest_path = _write_cli_manifest_fixture(tmp_path / "fixture")
+
+    exit_code = cli_main.main(
+        ["model", "show-artifact", str(manifest_path), "--json"]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["schema_version"] == "training.model_artifact.show.v1"
+    assert data["result"]["model_name"] == "mlp_classifier"
+    assert data["result"]["validation_status"] == "ok"
+    assert str(tmp_path) not in captured.out
+
+
+def test_cli_model_check_artifact_pass_and_fail(tmp_path, capsys) -> None:
+    manifest_path = _write_cli_manifest_fixture(tmp_path / "fixture")
+
+    passed = cli_main.main(
+        [
+            "model",
+            "check-artifact",
+            str(manifest_path),
+            "--min-test-macro-f1",
+            "0.75",
+            "--require-beats-baseline",
+            "--json",
+        ]
+    )
+    pass_output = json.loads(capsys.readouterr().out)
+
+    failed = cli_main.main(
+        [
+            "model",
+            "check-artifact",
+            str(manifest_path),
+            "--min-test-macro-f1",
+            "0.90",
+            "--json",
+        ]
+    )
+    fail_output = json.loads(capsys.readouterr().out)
+
+    assert passed == 0
+    assert pass_output["schema_version"] == "training.model_artifact.check.v1"
+    assert pass_output["result"]["status"] == "passed"
+    assert failed == 1
+    assert fail_output["result"]["status"] == "failed"
 
 
 def test_cli_model_validate_artifact_missing_manifest_json(capsys) -> None:
@@ -3038,6 +3181,59 @@ def _write_outcome_pairs_files(tmp_path):
         encoding="utf-8",
     )
     return pairs
+
+
+def _write_cli_manifest_fixture(artifact_dir):
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "model.pt").write_bytes(b"not inspected by cli summaries")
+    (artifact_dir / "feature_spec.json").write_text(
+        json.dumps(
+            {
+                "feature_names": ["features.safe_signal"],
+                "categorical_features": [],
+                "numeric_features": ["features.safe_signal"],
+                "boolean_features": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (artifact_dir / "label_mapping.json").write_text(
+        json.dumps({"improved": 0, "regressed": 1}),
+        encoding="utf-8",
+    )
+    (artifact_dir / "training_config.json").write_text("{}", encoding="utf-8")
+    (artifact_dir / "evaluation_report.json").write_text("{}", encoding="utf-8")
+    manifest_path = artifact_dir / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema_version": "training.model_artifact.v1",
+                "artifact_type": "mlp_classifier",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "model_name": "mlp_classifier",
+                "model_format": "torch_state_dict",
+                "model_file": "model.pt",
+                "feature_spec_file": "feature_spec.json",
+                "label_mapping_file": "label_mapping.json",
+                "training_config_file": "training_config.json",
+                "evaluation_report_file": "evaluation_report.json",
+                "input_size": 1,
+                "output_size": 2,
+                "labels": ["improved", "regressed"],
+                "feature_names": ["features.safe_signal"],
+                "validation_macro_f1": 0.8,
+                "test_macro_f1": 0.76,
+                "baseline_macro_f1": 0.7,
+                "beats_baseline": True,
+                "target_macro_f1": 0.85,
+                "target_met": False,
+                "warnings": [],
+                "metadata": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return manifest_path
 
 
 def _write_training_dataset_jsonl(tmp_path):

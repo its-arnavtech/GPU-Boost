@@ -25,7 +25,9 @@ from gpuboost.history.store import list_history_runs, load_history_run
 from gpuboost.inspector.profile import collect_profile
 from gpuboost.model.artifacts import (
     DEFAULT_ARTIFACT_DIR,
+    list_model_artifacts,
     save_neural_model_artifact,
+    summarize_model_artifact,
     validate_model_artifact,
 )
 from gpuboost.model.feature_encoding import build_encoded_training_dataset
@@ -365,6 +367,59 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional artifact directory name.",
     )
 
+    list_artifacts_parser = model_subparsers.add_parser(
+        "list-artifacts",
+        help="List saved local model artifacts.",
+    )
+    list_artifacts_parser.add_argument(
+        "--artifacts-dir",
+        default=DEFAULT_ARTIFACT_DIR,
+        help="Directory containing generated model artifacts.",
+    )
+    list_artifacts_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    show_artifact_parser = model_subparsers.add_parser(
+        "show-artifact",
+        help="Show a safe summary for one model artifact.",
+    )
+    show_artifact_parser.add_argument("manifest_path")
+    show_artifact_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    check_artifact_parser = model_subparsers.add_parser(
+        "check-artifact",
+        help="Validate a model artifact against local quality gates.",
+    )
+    check_artifact_parser.add_argument("manifest_path")
+    check_artifact_parser.add_argument(
+        "--min-test-macro-f1",
+        type=float,
+        default=None,
+        help="Require test macro F1 to be at least this value when available.",
+    )
+    check_artifact_parser.add_argument(
+        "--require-beats-baseline",
+        action="store_true",
+        help="Require the artifact to beat the best baseline.",
+    )
+    check_artifact_parser.add_argument(
+        "--require-target-met",
+        action="store_true",
+        help="Require the artifact target macro F1 gate to be met.",
+    )
+    check_artifact_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
     validate_artifact_parser = model_subparsers.add_parser(
         "validate-artifact",
         help="Validate a saved local model artifact manifest.",
@@ -638,6 +693,12 @@ def main(argv: list[str] | None = None) -> int:
             return _run_model_evaluate_baselines(args)
         if args.model_command == "train-neural":
             return _run_model_train_neural(args)
+        if args.model_command == "list-artifacts":
+            return _run_model_list_artifacts(args)
+        if args.model_command == "show-artifact":
+            return _run_model_show_artifact(args)
+        if args.model_command == "check-artifact":
+            return _run_model_check_artifact(args)
         if args.model_command == "validate-artifact":
             return _run_model_validate_artifact(args)
         if args.model_command == "predict-artifact":
@@ -645,7 +706,8 @@ def main(argv: list[str] | None = None) -> int:
 
         print(
             "GPUBoost Model\nAvailable commands: evaluate-baselines, train-neural, "
-            "validate-artifact, predict-artifact"
+            "list-artifacts, show-artifact, check-artifact, validate-artifact, "
+            "predict-artifact"
         )
         return 0
 
@@ -845,9 +907,14 @@ def _run_model_train_neural(args: argparse.Namespace) -> int:
     result = search.to_dict()
     result["output_files"] = output_files
     result["baseline_comparison"] = baseline
+    result["patch_application_allowed"] = False
     if artifact_manifest is not None:
         manifest_path = artifact_manifest.metadata.get("manifest_path")
         result["artifact_manifest"] = manifest_path
+        result["artifact_manifest_path"] = manifest_path
+        if isinstance(manifest_path, str):
+            validation = validate_model_artifact(manifest_path)
+            result["artifact_validation_status"] = validation.get("status")
     if args.json:
         print(
             json.dumps(
@@ -859,6 +926,60 @@ def _run_model_train_neural(args: argparse.Namespace) -> int:
     else:
         print(render_model_train_neural_human(result))
     return 0 if search.status == "ok" else 1
+
+
+def _run_model_list_artifacts(args: argparse.Namespace) -> int:
+    artifacts = list_model_artifacts(args.artifacts_dir)
+    result = {
+        "artifact_count": len(artifacts),
+        "artifacts": artifacts,
+    }
+    if args.json:
+        print(
+            json.dumps(
+                build_model_list_artifacts_json_payload(result),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_model_list_artifacts_human(result))
+    return 0
+
+
+def _run_model_show_artifact(args: argparse.Namespace) -> int:
+    summary = summarize_model_artifact(args.manifest_path)
+    if args.json:
+        print(
+            json.dumps(
+                build_model_show_artifact_json_payload(summary),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_model_show_artifact_human(summary))
+    return 0 if summary.get("validation_status") == "ok" else 1
+
+
+def _run_model_check_artifact(args: argparse.Namespace) -> int:
+    result = check_model_artifact_quality(
+        args.manifest_path,
+        min_test_macro_f1=args.min_test_macro_f1,
+        require_beats_baseline=args.require_beats_baseline,
+        require_target_met=args.require_target_met,
+    )
+    if args.json:
+        print(
+            json.dumps(
+                build_model_check_artifact_json_payload(result),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_model_check_artifact_human(result))
+    return 0 if result.get("status") == "passed" else 1
 
 
 def _run_model_validate_artifact(args: argparse.Namespace) -> int:
@@ -1134,6 +1255,36 @@ def build_model_train_neural_error_payload(error: str) -> dict[str, object]:
     }
 
 
+def build_model_list_artifacts_json_payload(
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": "training.model_artifacts.list.v1",
+        "command": "model list-artifacts",
+        "result": result,
+    }
+
+
+def build_model_show_artifact_json_payload(
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": "training.model_artifact.show.v1",
+        "command": "model show-artifact",
+        "result": result,
+    }
+
+
+def build_model_check_artifact_json_payload(
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": "training.model_artifact.check.v1",
+        "command": "model check-artifact",
+        "result": result,
+    }
+
+
 def build_model_validate_artifact_json_payload(
     result: dict[str, object],
 ) -> dict[str, object]:
@@ -1320,18 +1471,42 @@ def render_model_train_neural_human(result: dict[str, object]) -> str:
     else:
         lines.append("- none")
 
+    manifest_path = result.get("artifact_manifest_path") or result.get(
+        "artifact_manifest"
+    )
+    if isinstance(manifest_path, str) and manifest_path:
+        lines.extend(
+            [
+                "",
+                "Artifact:",
+                f"- Manifest: {manifest_path}",
+                f"- Validation status: "
+                f"{result.get('artifact_validation_status') or 'unknown'}",
+                "- Patch application allowed: no",
+                "- Validate: "
+                f"python -m gpuboost model validate-artifact {manifest_path}",
+                "- Use in agent: "
+                "python -m gpuboost agent optimize <script> "
+                f"--model-artifact {manifest_path}",
+            ]
+        )
+
     warnings = result.get("warnings")
     if isinstance(warnings, list) and warnings:
         lines.extend(["", "Warnings:"])
         lines.extend(f"- {warning}" for warning in warnings)
 
-    lines.extend(
-        [
-            "",
+    if isinstance(manifest_path, str) and manifest_path:
+        safety = (
+            "Safety: artifact saved only because --save-artifact was provided; "
+            "model predictions remain advisory and cannot apply patches."
+        )
+    else:
+        safety = (
             "Safety: no production model artifact was saved and no agent "
-            "integration was changed.",
-        ]
-    )
+            "integration was changed."
+        )
+    lines.extend(["", safety])
     return "\n".join(lines)
 
 
@@ -1345,6 +1520,81 @@ def render_model_train_neural_error_human(error: str) -> str:
             f"- {error}",
         ]
     )
+
+
+def render_model_list_artifacts_human(result: dict[str, object]) -> str:
+    artifacts = result.get("artifacts")
+    artifacts = artifacts if isinstance(artifacts, list) else []
+    lines = [
+        "GPUBoost Model Artifacts",
+        f"Found: {result.get('artifact_count', len(artifacts))}",
+    ]
+    for artifact in artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        lines.extend(
+            [
+                "",
+                f"- path: {artifact.get('manifest_path') or 'unknown'}",
+                f"  model name: {artifact.get('model_name') or 'unknown'}",
+                "  validation macro F1: "
+                f"{_format_optional_score(artifact.get('validation_macro_f1'))}",
+                "  test macro F1: "
+                f"{_format_optional_score(artifact.get('test_macro_f1'))}",
+                "  beats baseline: "
+                f"{_format_yes_no(artifact.get('beats_baseline') is True)}",
+                "  target met: "
+                f"{_format_yes_no(artifact.get('target_met') is True)}",
+                "  validation status: "
+                f"{artifact.get('validation_status') or 'unknown'}",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def render_model_show_artifact_human(summary: dict[str, object]) -> str:
+    lines = [
+        "GPUBoost Model Artifact",
+        f"Path: {summary.get('manifest_path') or 'unknown'}",
+        f"Status: {summary.get('validation_status') or 'unknown'}",
+        f"Model: {summary.get('model_name') or 'unknown'}",
+        f"Labels: {_format_label_list(summary.get('labels'))}",
+        f"Feature count: {summary.get('feature_count') or 0}",
+        "Validation macro F1: "
+        f"{_format_optional_score(summary.get('validation_macro_f1'))}",
+        f"Test macro F1: {_format_optional_score(summary.get('test_macro_f1'))}",
+        "Baseline macro F1: "
+        f"{_format_optional_score(summary.get('baseline_macro_f1'))}",
+        f"Beats baseline: {_format_yes_no(summary.get('beats_baseline') is True)}",
+        f"Target met: {_format_yes_no(summary.get('target_met') is True)}",
+    ]
+    warnings = summary.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in warnings)
+    errors = summary.get("validation_errors")
+    if isinstance(errors, list) and errors:
+        lines.extend(["", "Errors:"])
+        lines.extend(f"- {error}" for error in errors)
+    return "\n".join(lines)
+
+
+def render_model_check_artifact_human(result: dict[str, object]) -> str:
+    lines = [
+        "GPUBoost Model Artifact Check",
+        f"Status: {result.get('status') or 'unknown'}",
+    ]
+    checks = result.get("checks")
+    if isinstance(checks, list) and checks:
+        lines.extend(["", "Checks:"])
+        for check in checks:
+            if isinstance(check, dict):
+                lines.append(
+                    "- "
+                    f"{check.get('name')}: {check.get('status')} "
+                    f"({check.get('message')})"
+                )
+    return "\n".join(lines)
 
 
 def render_model_validate_artifact_human(result: dict[str, object]) -> str:
@@ -1595,6 +1845,12 @@ def _format_training_counts(value: object) -> str:
     return ", ".join(f"{key}={item}" for key, item in sorted(value.items()))
 
 
+def _format_label_list(value: object) -> str:
+    if not isinstance(value, list) or not value:
+        return "none"
+    return ", ".join(str(item) for item in value)
+
+
 def _parse_hidden_sizes(value: str | None) -> list[int] | None:
     if value is None:
         return None
@@ -1667,6 +1923,76 @@ def _load_cli_features(
     if not isinstance(data, dict):
         raise ValueError("Artifact prediction features must be a JSON object.")
     return data
+
+
+def check_model_artifact_quality(
+    manifest_path: str,
+    *,
+    min_test_macro_f1: float | None = None,
+    require_beats_baseline: bool = False,
+    require_target_met: bool = False,
+) -> dict[str, object]:
+    summary = summarize_model_artifact(manifest_path)
+    checks: list[dict[str, object]] = []
+
+    validation_ok = summary.get("validation_status") == "ok"
+    checks.append(
+        {
+            "name": "valid_artifact",
+            "status": "passed" if validation_ok else "failed",
+            "message": "artifact validation passed"
+            if validation_ok
+            else "artifact validation failed",
+        }
+    )
+
+    if min_test_macro_f1 is not None:
+        test_macro_f1 = summary.get("test_macro_f1")
+        metric_ok = isinstance(test_macro_f1, int | float) and (
+            float(test_macro_f1) >= min_test_macro_f1
+        )
+        checks.append(
+            {
+                "name": "min_test_macro_f1",
+                "status": "passed" if metric_ok else "failed",
+                "threshold": min_test_macro_f1,
+                "value": test_macro_f1,
+                "message": "test macro F1 meets threshold"
+                if metric_ok
+                else "test macro F1 does not meet threshold",
+            }
+        )
+
+    if require_beats_baseline:
+        beats_baseline = summary.get("beats_baseline") is True
+        checks.append(
+            {
+                "name": "beats_baseline",
+                "status": "passed" if beats_baseline else "failed",
+                "message": "artifact beats baseline"
+                if beats_baseline
+                else "artifact does not beat baseline",
+            }
+        )
+
+    if require_target_met:
+        target_met = summary.get("target_met") is True
+        checks.append(
+            {
+                "name": "target_met",
+                "status": "passed" if target_met else "failed",
+                "message": "artifact target was met"
+                if target_met
+                else "artifact target was not met",
+            }
+        )
+
+    passed = all(check.get("status") == "passed" for check in checks)
+    return {
+        "status": "passed" if passed else "failed",
+        "checks": checks,
+        "summary": summary,
+    }
 
 
 def _format_optional_score(value: object) -> str:

@@ -221,9 +221,19 @@ the temporary trial workspace. Test commands may execute arbitrary user-provided
 code and never run unless `--test` is passed with `--trial`.
 
 With `--model`, GPUBoost runs the Phase 10 local model interface over safe
-feature summaries. Because no trained GPUBoost model is included yet, it falls
-back to `NullModelProvider` and reports `model_available: false`,
-`fallback_used: true`, and `status: "fallback"` in `artifacts.model`.
+feature summaries. Without a saved local artifact, it falls back to
+`NullModelProvider` and reports `model_available: false`, `fallback_used: true`,
+and `status: "fallback"` in `artifacts.model`.
+
+With `--model-artifact <manifest>`, GPUBoost loads a saved local artifact for
+advisory prediction:
+
+```bash
+python -m gpuboost agent optimize train.py --model-artifact data/gpuboost/generated/model_training/artifacts/<id>/manifest.json
+```
+
+The model prediction is advisory only. It cannot apply patches, edit files, or
+override deterministic checks, trials, tests, or benchmark evidence.
 
 JSON output uses schema version `agent.optimize.v1` and includes
 `schema_version`, `command`, `result`, `report`, `artifacts.diff`, and
@@ -318,6 +328,13 @@ python -m gpuboost agent optimize .\examples\bad_train_sample.txt --model --tria
 gpuboost history list
 gpuboost history show <run_id>
 gpuboost history compare <left_run_id> <right_run_id>
+python -m gpuboost model train-neural --json
+python -m gpuboost model train-neural --save-artifact --json
+python -m gpuboost model list-artifacts
+python -m gpuboost model show-artifact <manifest_path>
+python -m gpuboost model validate-artifact <manifest_path>
+python -m gpuboost model check-artifact <manifest_path> --min-test-macro-f1 0.75 --require-beats-baseline
+python -m gpuboost model predict-artifact <manifest_path> --features-json '{...}' --json
 ```
 
 Planned commands, not yet implemented:
@@ -433,6 +450,10 @@ data validation, and GPUBoost's own model.
 - Phase 12.5 allows advisory agent predictions with
   `python -m gpuboost agent optimize train.py --model-artifact <manifest_path>`;
   the flag automatically enables model inference
+- Phase 12.6 adds artifact lifecycle polish:
+  `python -m gpuboost model list-artifacts`,
+  `python -m gpuboost model show-artifact <manifest_path>`, and
+  `python -m gpuboost model check-artifact <manifest_path> --min-test-macro-f1 0.75 --require-beats-baseline`
 - Saved artifacts live under ignored generated paths by default; model
   predictions must never apply patches, edit files, or override deterministic
   GPUBoost checks
@@ -503,7 +524,7 @@ The test suite does not require an NVIDIA GPU.
 ## Not Included Yet
 
 - `--apply` or original source editing
-- A trained GPUBoost model
+- A bundled/default trained GPUBoost model
 - External LLM provider integrations
 - Phase 12 model training
 - Phase 13 production-system testing

@@ -137,3 +137,43 @@ and `patch_application_allowed=false`.
 
 The trained model remains advisory only. It does not apply patches, edit files,
 override deterministic safety checks, or change trial behavior.
+
+Phase 12.6 adds lifecycle commands for local generated artifacts. The full local
+workflow is:
+
+```bash
+# 1. Train reports only
+python -m gpuboost model train-neural --json
+
+# 2. Train and explicitly save an artifact
+python -m gpuboost model train-neural --save-artifact --json
+
+# 3. List generated artifacts
+python -m gpuboost model list-artifacts
+python -m gpuboost model list-artifacts --json
+
+# 4. Show a safe artifact summary
+python -m gpuboost model show-artifact data/gpuboost/generated/model_training/artifacts/local_mlp/manifest.json
+
+# 5. Validate and quality-check an artifact
+python -m gpuboost model validate-artifact data/gpuboost/generated/model_training/artifacts/local_mlp/manifest.json
+python -m gpuboost model check-artifact data/gpuboost/generated/model_training/artifacts/local_mlp/manifest.json --min-test-macro-f1 0.75 --require-beats-baseline
+
+# 6. Predict directly from safe feature JSON
+python -m gpuboost model predict-artifact data/gpuboost/generated/model_training/artifacts/local_mlp/manifest.json --features-json '{"features.workload_family":"amp","features.batch_size":16}' --json
+
+# 7. Use the artifact as an advisory agent signal
+python -m gpuboost agent optimize train.py --model-artifact data/gpuboost/generated/model_training/artifacts/local_mlp/manifest.json
+```
+
+`list-artifacts` recursively finds `manifest.json` files under
+`data/gpuboost/generated/model_training/artifacts/` by default. `show-artifact`
+prints only manifest-level metadata and validation status; it does not load or
+print model weights. `check-artifact` is a read-only quality gate for local
+automation. It can require a valid artifact, a minimum test macro F1, beating
+the best baseline, and target-met status.
+
+Artifact files remain local generated files and are ignored by Git. They do not
+involve external APIs, scraping, or LLM fine-tuning. Model predictions are
+advisory only, cannot apply patches, and cannot override deterministic
+GPUBoost checks, trials, syntax checks, tests, or benchmark evidence.
