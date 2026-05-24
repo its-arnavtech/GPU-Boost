@@ -42,7 +42,7 @@ def create_optimize_script_plan(goal: AgentGoal) -> AgentPlan:
     warnings: list[str] = []
 
     trial_requested = bool(goal.options.get("trial"))
-    model_requested = bool(goal.options.get("model"))
+    model_requested = bool(goal.options.get("model") or goal.options.get("model_artifact_path"))
 
     if goal.script_path:
         script_inputs = {"script_path": goal.script_path}

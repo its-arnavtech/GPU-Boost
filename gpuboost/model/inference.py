@@ -5,8 +5,14 @@ from __future__ import annotations
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
+from gpuboost.agent.state import AgentState
+from gpuboost.model.agent_features import build_model_input_from_agent_state
 from gpuboost.model.features import extract_model_features_from_agent_result
-from gpuboost.model.provider import BaseModelProvider, NullModelProvider
+from gpuboost.model.provider import (
+    BaseModelProvider,
+    NullModelProvider,
+    TrainedLocalModelProvider,
+)
 from gpuboost.schemas.agent import AgentRunResult, create_timestamp
 from gpuboost.schemas.model import ModelFeatureSet, ModelInferenceResult, ModelInput
 
@@ -35,6 +41,9 @@ def build_model_input(agent_state: Any) -> ModelInput:
 
     if isinstance(agent_state, AgentRunResult):
         return build_model_input_from_agent_result(agent_state)
+
+    if isinstance(agent_state, AgentState):
+        return build_model_input_from_agent_state(agent_state)
 
     goal = getattr(agent_state, "goal", None)
     metadata = getattr(agent_state, "metadata", {})
@@ -76,7 +85,7 @@ def run_model_inference(
     """Run local model inference or a deterministic fallback."""
 
     model_input = build_model_input(agent_result)
-    selected_provider = provider or NullModelProvider()
+    selected_provider = provider or _provider_from_agent_result(agent_result)
     try:
         return selected_provider.predict(model_input)
     except Exception as error:  # noqa: BLE001 - provider failures are non-fatal
@@ -108,6 +117,17 @@ def model_result_to_artifact(result: ModelInferenceResult) -> dict[str, Any]:
     if is_dataclass(result) and not isinstance(result, type):
         return asdict(result)
     return dict(result)
+
+
+def _provider_from_agent_result(agent_result: Any) -> BaseModelProvider:
+    goal = getattr(agent_result, "goal", None)
+    options = getattr(goal, "options", {}) if goal is not None else {}
+    artifact_path = None
+    if isinstance(options, dict):
+        artifact_path = options.get("model_artifact_path")
+    if isinstance(artifact_path, str) and artifact_path:
+        return TrainedLocalModelProvider(artifact_path)
+    return NullModelProvider()
 
 
 def _safe_call(provider: BaseModelProvider, method_name: str) -> str | None:

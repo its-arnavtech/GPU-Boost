@@ -13,6 +13,7 @@ from gpuboost.model.inference import (
     model_result_to_artifact,
     run_model_inference,
 )
+from gpuboost.model import inference as model_inference
 from gpuboost.schemas.agent import (
     AgentAction,
     AgentEvent,
@@ -139,6 +140,39 @@ def test_run_model_inference_provider_failure_returns_safe_fallback() -> None:
     assert inference.metadata["provider"] == "FailingModelProvider"
     assert inference.metadata["failure"] == "synthetic provider failure"
     assert any("synthetic provider failure" in warning for warning in inference.warnings)
+
+
+def test_run_model_inference_selects_trained_provider_for_artifact(monkeypatch) -> None:
+    created = []
+
+    class FakeTrainedProvider(StaticModelProvider):
+        def __init__(self, manifest_path: str) -> None:
+            super().__init__(available=True)
+            created.append(manifest_path)
+
+        def model_name(self) -> str:
+            return "trained-fixture"
+
+        def predict(self, model_input: ModelInput) -> ModelInferenceResult:
+            result = super().predict(model_input)
+            result.metadata["provider"] = "trained_local_model"
+            result.metadata["patch_application_allowed"] = False
+            return result
+
+    monkeypatch.setattr(
+        model_inference,
+        "TrainedLocalModelProvider",
+        FakeTrainedProvider,
+    )
+    result = _make_agent_result()
+    result.goal.options["model_artifact_path"] = "artifact/manifest.json"
+
+    inference = run_model_inference(result)
+
+    assert created == ["artifact/manifest.json"]
+    assert inference.model_name == "trained-fixture"
+    assert inference.metadata["provider"] == "trained_local_model"
+    assert inference.metadata["patch_application_allowed"] is False
 
 
 def test_model_result_to_artifact_returns_dict() -> None:

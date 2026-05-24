@@ -146,6 +146,14 @@ def test_planner_includes_model_action_only_when_requested() -> None:
     ]
 
 
+def test_planner_includes_model_action_when_artifact_path_is_present() -> None:
+    plan = create_optimize_script_plan(
+        _make_goal(script_path="train.py", model_artifact_path="artifact/manifest.json"),
+    )
+
+    assert RUN_MODEL_INFERENCE in [action.name for action in plan.actions]
+
+
 def test_model_action_depends_on_prior_useful_actions_and_summary_depends_on_model(
 ) -> None:
     plan = create_optimize_script_plan(_make_goal(script_path="train.py", model=True))
@@ -202,12 +210,18 @@ def _make_goal(
     script_path: str | None = "train.py",
     trial: bool = False,
     model: bool = False,
+    model_artifact_path: str | None = None,
 ) -> AgentGoal:
     return AgentGoal(
         id=goal_id,
         kind=kind,
         description="Optimize train.py for NVIDIA GPU performance",
         script_path=script_path,
-        options={"quick": True, "trial": trial, "model": model},
+        options={
+            "quick": True,
+            "trial": trial,
+            "model": model,
+            "model_artifact_path": model_artifact_path,
+        },
         constraints=["do_not_modify_original_file"],
     )

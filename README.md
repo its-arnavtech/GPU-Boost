@@ -86,9 +86,9 @@ evidence-based optimization tool for CUDA and PyTorch development.
 - Adds `gpuboost agent optimize --model`
 - Routes safe summary features through a local model provider interface
 - Includes `NullModelProvider` fallback when no provider is configured
-- Does not include a trained GPUBoost model yet
-- Does not call external LLM APIs, train a model, load a real model, collect
-  datasets, or export data
+- Supports explicit local trained artifacts through
+  `agent optimize --model-artifact <manifest>`
+- Does not call external LLM APIs
 - Keeps deterministic GPUBoost logic and measured benchmark data as the source
   of truth
 
@@ -221,9 +221,19 @@ the temporary trial workspace. Test commands may execute arbitrary user-provided
 code and never run unless `--test` is passed with `--trial`.
 
 With `--model`, GPUBoost runs the Phase 10 local model interface over safe
-feature summaries. Because no trained GPUBoost model is included yet, it falls
-back to `NullModelProvider` and reports `model_available: false`,
-`fallback_used: true`, and `status: "fallback"` in `artifacts.model`.
+feature summaries. Without a saved local artifact, it falls back to
+`NullModelProvider` and reports `model_available: false`, `fallback_used: true`,
+and `status: "fallback"` in `artifacts.model`.
+
+With `--model-artifact <manifest>`, GPUBoost loads a saved local artifact for
+advisory prediction:
+
+```bash
+python -m gpuboost agent optimize train.py --model-artifact data/gpuboost/generated/model_training/artifacts/<id>/manifest.json
+```
+
+The model prediction is advisory only. It cannot apply patches, edit files, or
+override deterministic checks, trials, tests, or benchmark evidence.
 
 JSON output uses schema version `agent.optimize.v1` and includes
 `schema_version`, `command`, `result`, `report`, `artifacts.diff`, and
@@ -318,6 +328,18 @@ python -m gpuboost agent optimize .\examples\bad_train_sample.txt --model --tria
 gpuboost history list
 gpuboost history show <run_id>
 gpuboost history compare <left_run_id> <right_run_id>
+python -m gpuboost model train-neural --json
+python -m gpuboost model evaluate-baselines --json
+python -m gpuboost model train-neural --max-epochs 50 --max-candidates 12 --target-macro-f1 0.85 --json
+python -m gpuboost model train-neural --save-artifact --json
+python -m gpuboost model train-neural --max-epochs 50 --max-candidates 12 --target-macro-f1 0.85 --save-artifact --json
+python -m gpuboost model list-artifacts
+python -m gpuboost model show-artifact <manifest_path>
+python -m gpuboost model validate-artifact <manifest_path>
+python -m gpuboost model check-artifact <manifest_path> --min-test-macro-f1 0.75 --require-beats-baseline
+python -m gpuboost model predict-artifact <manifest_path> --features-json '{...}' --json
+python -m gpuboost agent optimize <script> --model-artifact <manifest_path> --json
+python -m gpuboost model safety-check --json
 ```
 
 Planned commands, not yet implemented:
@@ -405,8 +427,48 @@ data validation, and GPUBoost's own model.
 
 ### Phase 12: GPUBoost Model Training and Integration
 
-- Future phase to train and integrate GPUBoost's own model, starting with a
-  baseline structured model rather than fine-tuning
+- Adds GPUBoost's local model workflow while keeping deterministic logic
+  authoritative
+- Does not fine-tune an LLM, call external APIs, let models apply patches,
+  commit generated artifacts, make model predictions authoritative, or
+  guarantee optimization success
+- Phase 12.1 adds the safe training dataset loader, feature/label encoding,
+  evaluation utilities, and a majority-class sanity baseline. See
+  [Model Training](docs/model-training.md).
+- Phase 12.2 adds dependency-free baseline comparison for
+  majority-class, seeded random, nearest-centroid, and simple KNN models:
+  `python -m gpuboost model evaluate-baselines --json`
+- Baseline reports are written under
+  `data/gpuboost/generated/model_training/` by default; no production model
+  artifact is saved and no predictions are integrated into the agent yet
+- Phase 12.3 adds a small PyTorch MLP trained from scratch on safe encoded
+  structured features: `python -m gpuboost model train-neural --json`
+- Neural training runs a modest validation-selected hyperparameter search,
+  compares against the best baseline, treats `0.85` macro F1 as aspirational,
+  and reports honestly when the target is missed
+- Neural reports are evaluation artifacts only; no production model checkpoint
+  is saved, no LLM is fine-tuned, no external API is called, and no agent
+  integration is changed
+- Phase 12.4 adds explicit local artifact packaging only when requested:
+  `python -m gpuboost model train-neural --save-artifact --json`
+- Artifacts can be checked with
+  `python -m gpuboost model validate-artifact <manifest_path> --json` and used
+  for standalone local predictions with
+  `python -m gpuboost model predict-artifact <manifest_path> --features-json '{...}' --json`
+- Phase 12.5 allows advisory agent predictions with
+  `python -m gpuboost agent optimize train.py --model-artifact <manifest_path>`;
+  the flag automatically enables model inference
+- Phase 12.6 adds artifact lifecycle polish:
+  `python -m gpuboost model list-artifacts`,
+  `python -m gpuboost model show-artifact <manifest_path>`, and
+  `python -m gpuboost model check-artifact <manifest_path> --min-test-macro-f1 0.75 --require-beats-baseline`
+- Saved artifacts live under ignored generated paths by default; model
+  predictions must never apply patches, edit files, or override deterministic
+  GPUBoost checks
+- Phase 12.7 adds final docs, a manual smoke script, safety checks, and
+  release-readiness documentation
+- A future phase should package/integrate a local model only if validation/test
+  evaluation is strong and it meaningfully beats structured baselines
 - Training must use safe feature extraction and must not train on
   target-derived comparison fields such as verdicts, before/after metrics,
   deltas, labels, raw diffs, stdout, or stderr
@@ -472,9 +534,8 @@ The test suite does not require an NVIDIA GPU.
 ## Not Included Yet
 
 - `--apply` or original source editing
-- A trained GPUBoost model
+- A bundled/default trained GPUBoost model
 - External LLM provider integrations
-- Phase 12 model training
 - Phase 13 production-system testing
 - Dashboard code
 - Daemon code
