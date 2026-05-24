@@ -16,6 +16,7 @@ def create_optimize_script_goal(
     goal_id: str = "optimize_script",
     trial: bool = False,
     model: bool = False,
+    model_artifact_path: str | None = None,
     test_command: str | None = None,
 ) -> AgentGoal:
     """Create a deterministic optimize_script goal."""
@@ -28,7 +29,8 @@ def create_optimize_script_goal(
     options = {
         "quick": quick,
         "trial": trial,
-        "model": model,
+        "model": model or bool(model_artifact_path),
+        "model_artifact_path": model_artifact_path,
         "test_command": test_command,
     }
 
@@ -51,6 +53,7 @@ def run_optimize_script_workflow(
     quick: bool = True,
     trial: bool = False,
     model: bool = False,
+    model_artifact_path: str | None = None,
     test_command: str | None = None,
     save_history: bool = False,
     history_db_path: str | None = None,
@@ -62,6 +65,7 @@ def run_optimize_script_workflow(
         quick=quick,
         trial=trial,
         model=model,
+        model_artifact_path=model_artifact_path,
         test_command=test_command,
     )
     plan = plan_for_goal(goal)

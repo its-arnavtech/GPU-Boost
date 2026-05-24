@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from gpuboost.agent.report import AgentReport, AgentReportSection
 from gpuboost.cli import main as cli_main
 from gpuboost.history.store import insert_history_run
@@ -439,6 +441,51 @@ def test_cli_agent_optimize_model_flag_passes_model_true(monkeypatch, capsys) ->
     assert captured.err == ""
 
 
+def test_cli_agent_optimize_model_artifact_auto_enables_model(
+    monkeypatch,
+    capsys,
+) -> None:
+    calls = []
+
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+        model_artifact_path: str | None = None,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        calls.append(
+            {
+                "script_path": script_path,
+                "quick": quick,
+                "model": model,
+                "model_artifact_path": model_artifact_path,
+            }
+        )
+        return _fake_agent_result_and_report(script_path=script_path, quick=quick)
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(
+        ["agent", "optimize", "train.py", "--model-artifact", "artifact/manifest.json"]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert calls == [
+        {
+            "script_path": "train.py",
+            "quick": True,
+            "model": True,
+            "model_artifact_path": "artifact/manifest.json",
+        }
+    ]
+    assert captured.err == ""
+
+
 def test_cli_agent_optimize_human_output_includes_report_sections(
     monkeypatch,
     capsys,
@@ -547,6 +594,8 @@ def test_cli_agent_optimize_human_output_shows_model_when_present(
     assert "- Available: no" in captured.out
     assert "- Fallback used: yes" in captured.out
     assert "- Model: none" in captured.out
+    assert "- Patch application allowed: no" in captured.out
+    assert "model prediction is advisory only" in captured.out
     assert captured.err == ""
 
 
@@ -1071,12 +1120,63 @@ def test_cli_agent_optimize_json_with_model_includes_model_artifact(
     data = json.loads(captured.out)
 
     assert exit_code == 0
-    assert data["artifacts"]["model"] == _fake_model_artifact()
+    assert data["artifacts"]["model"]["status"] == "fallback"
+    assert data["artifacts"]["model"]["patch_application_allowed"] is False
     assert data["artifacts"]["diff"] is None
     assert data["artifacts"]["trial"] is None
     assert data["artifacts"]["comparison"] is None
     assert data["artifacts"]["history_run_id"] is None
     assert "Model:" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_agent_optimize_json_with_trained_model_has_stable_advisory_shape(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+        model_artifact_path: str | None = None,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        assert model is True
+        assert model_artifact_path == "artifact/manifest.json"
+        return _fake_agent_result_and_report(
+            script_path=script_path,
+            quick=quick,
+            model_artifact=_fake_trained_model_artifact(),
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(
+        [
+            "agent",
+            "optimize",
+            "train.py",
+            "--model",
+            "--model-artifact",
+            "artifact/manifest.json",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    model = data["artifacts"]["model"]
+    assert exit_code == 0
+    assert model["status"] == "ok"
+    assert model["provider"] == "trained_local_model"
+    assert model["prediction"] == {"label": "improved", "confidence": 0.91}
+    assert model["probabilities"] == {"improved": 0.91, "regressed": 0.09}
+    assert model["patch_application_allowed"] is False
+    assert "raw diff" not in captured.out
+    assert "stdout" not in captured.out
     assert captured.err == ""
 
 
@@ -2022,6 +2122,291 @@ def test_cli_dataset_collect_outcomes_missing_file_error_json(capsys) -> None:
     assert captured.err == ""
 
 
+def test_cli_model_evaluate_baselines_human_output(tmp_path, capsys) -> None:
+    dataset_path = _write_training_dataset_jsonl(tmp_path)
+    output_dir = tmp_path / "model_training"
+
+    exit_code = cli_main.main(
+        [
+            "model",
+            "evaluate-baselines",
+            "--dataset",
+            str(dataset_path),
+            "--output-dir",
+            str(output_dir),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Baseline Model Evaluation" in captured.out
+    assert "Rows:" in captured.out
+    assert "Labels:" in captured.out
+    assert "Eval split: validation" in captured.out
+    assert "Best model:" in captured.out
+    assert "Model scores:" in captured.out
+    assert (output_dir / "baseline_comparison_report.json").exists()
+    assert (output_dir / "baseline_comparison_report.md").exists()
+    assert not list(output_dir.glob("*.pt"))
+    assert not list(output_dir.glob("*.pkl"))
+    assert not list(output_dir.glob("*.safetensors"))
+    assert captured.err == ""
+
+
+def test_cli_model_evaluate_baselines_json_output(tmp_path, capsys) -> None:
+    dataset_path = _write_training_dataset_jsonl(tmp_path)
+    output_dir = tmp_path / "model_training"
+
+    exit_code = cli_main.main(
+        [
+            "model",
+            "evaluate-baselines",
+            "--dataset",
+            str(dataset_path),
+            "--output-dir",
+            str(output_dir),
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["schema_version"] == "training.baseline_comparison.v1"
+    assert data["command"] == "model evaluate-baselines"
+    assert data["result"]["status"] == "ok"
+    assert data["result"]["output_files"]["json_report"].endswith(
+        "baseline_comparison_report.json"
+    )
+    assert "GPUBoost Baseline Model Evaluation" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_model_evaluate_baselines_missing_dataset_error(capsys) -> None:
+    exit_code = cli_main.main(
+        [
+            "model",
+            "evaluate-baselines",
+            "--dataset",
+            "missing-training-dataset.jsonl",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["schema_version"] == "training.baseline_comparison.v1"
+    assert data["result"] is None
+    assert "missing-training-dataset.jsonl" in data["error"]
+    assert captured.err == ""
+
+
+def test_cli_model_train_neural_human_output(tmp_path, capsys) -> None:
+    from gpuboost.model.neural import torch_available
+
+    if not torch_available():
+        pytest.skip("PyTorch is unavailable.")
+    dataset_path = _write_training_dataset_jsonl(tmp_path)
+    output_dir = tmp_path / "model_training"
+    artifact_dir = tmp_path / "artifacts"
+
+    exit_code = cli_main.main(
+        [
+            "model",
+            "train-neural",
+            "--dataset",
+            str(dataset_path),
+            "--output-dir",
+            str(output_dir),
+            "--max-epochs",
+            "3",
+            "--hidden-sizes",
+            "8",
+            "--artifact-dir",
+            str(artifact_dir),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Neural Model Training" in captured.out
+    assert "Status:" in captured.out
+    assert "Dataset rows:" in captured.out
+    assert "Classes:" in captured.out
+    assert "Best validation macro F1:" in captured.out
+    assert "Best baseline macro F1:" in captured.out
+    assert "Target met:" in captured.out
+    assert (output_dir / "neural_training_report.json").exists()
+    assert (output_dir / "neural_training_report.md").exists()
+    assert not artifact_dir.exists()
+    assert not list(output_dir.glob("*.pt"))
+    assert not list(output_dir.glob("*.pth"))
+    assert not list(output_dir.glob("*.pkl"))
+    assert not list(output_dir.glob("*.safetensors"))
+    assert captured.err == ""
+
+
+def test_cli_model_train_neural_json_output(tmp_path, capsys) -> None:
+    from gpuboost.model.neural import torch_available
+
+    if not torch_available():
+        pytest.skip("PyTorch is unavailable.")
+    dataset_path = _write_training_dataset_jsonl(tmp_path)
+    output_dir = tmp_path / "model_training"
+
+    exit_code = cli_main.main(
+        [
+            "model",
+            "train-neural",
+            "--dataset",
+            str(dataset_path),
+            "--output-dir",
+            str(output_dir),
+            "--max-epochs",
+            "3",
+            "--hidden-sizes",
+            "8",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["schema_version"] == "training.neural_search_result.v1"
+    assert data["command"] == "model train-neural"
+    assert data["result"]["metadata"]["candidate_count"] == 1
+    assert data["result"]["output_files"]["json_report"].endswith(
+        "neural_training_report.json"
+    )
+    assert "baseline_comparison" in data["result"]
+    assert "GPUBoost Neural Model Training" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_model_train_neural_missing_dataset_error(capsys) -> None:
+    exit_code = cli_main.main(
+        [
+            "model",
+            "train-neural",
+            "--dataset",
+            "missing-training-dataset.jsonl",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["schema_version"] == "training.neural_search_result.v1"
+    assert data["result"] is None
+    assert "missing-training-dataset.jsonl" in data["error"]
+    assert captured.err == ""
+
+
+def test_cli_model_train_neural_save_artifact_and_validate_predict(
+    tmp_path,
+    capsys,
+) -> None:
+    from gpuboost.model.neural import torch_available
+
+    if not torch_available():
+        pytest.skip("PyTorch is unavailable.")
+    dataset_path = _write_training_dataset_jsonl(tmp_path)
+    output_dir = tmp_path / "model_training"
+    artifact_dir = tmp_path / "artifacts"
+
+    exit_code = cli_main.main(
+        [
+            "model",
+            "train-neural",
+            "--dataset",
+            str(dataset_path),
+            "--output-dir",
+            str(output_dir),
+            "--artifact-dir",
+            str(artifact_dir),
+            "--artifact-name",
+            "fixture",
+            "--max-epochs",
+            "3",
+            "--hidden-sizes",
+            "8",
+            "--save-artifact",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    manifest_path = data["result"]["artifact_manifest"]
+
+    assert exit_code == 0
+    assert manifest_path.endswith("manifest.json")
+    assert (artifact_dir / "fixture" / "manifest.json").exists()
+
+    validate_exit = cli_main.main(
+        ["model", "validate-artifact", manifest_path, "--json"]
+    )
+    validate_output = json.loads(capsys.readouterr().out)
+
+    assert validate_exit == 0
+    assert validate_output["result"]["status"] == "ok"
+
+    predict_exit = cli_main.main(
+        [
+            "model",
+            "predict-artifact",
+            manifest_path,
+            "--features-json",
+            '{"features.safe_signal": 1.0}',
+            "--json",
+        ]
+    )
+    predict_output = json.loads(capsys.readouterr().out)
+
+    assert predict_exit == 0
+    assert predict_output["result"]["status"] == "ok"
+    assert predict_output["result"]["predictions"][0]["label"]
+    assert predict_output["result"]["predictions"][0]["confidence"] is not None
+
+
+def test_cli_model_validate_artifact_missing_manifest_json(capsys) -> None:
+    exit_code = cli_main.main(
+        [
+            "model",
+            "validate-artifact",
+            "missing-manifest.json",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["result"]["status"] == "error"
+    assert "missing-manifest.json" in data["result"]["errors"][0]
+
+
+def test_cli_model_predict_artifact_missing_manifest_json(capsys) -> None:
+    exit_code = cli_main.main(
+        [
+            "model",
+            "predict-artifact",
+            "missing-manifest.json",
+            "--features-json",
+            "{}",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["result"]["status"] == "error"
+    assert "missing-manifest.json" in data["result"]["error"]
+
+
 def test_cli_history_list_human_output_with_no_runs(tmp_path, capsys) -> None:
     db_path = tmp_path / "history.db"
 
@@ -2543,6 +2928,38 @@ def _fake_model_artifact() -> dict[str, object]:
     }
 
 
+def _fake_trained_model_artifact() -> dict[str, object]:
+    return {
+        "model_available": True,
+        "model_name": "mlp_classifier",
+        "model_version": "training.model_artifact.v1",
+        "fallback_used": False,
+        "status": "ok",
+        "predictions": [
+            {
+                "id": "trained_local_prediction",
+                "target": "optimization_outcome",
+                "label": "improved",
+                "score": 0.91,
+                "confidence": 0.91,
+                "rationale": "Prediction from local trained GPUBoost artifact.",
+                "metadata": {
+                    "provider": "trained_local_model",
+                    "probabilities": {"improved": 0.91, "regressed": 0.09},
+                    "patch_application_allowed": False,
+                },
+            }
+        ],
+        "decisions": [],
+        "warnings": [],
+        "metadata": {
+            "provider": "trained_local_model",
+            "artifact_manifest_path": "artifact/manifest.json",
+            "patch_application_allowed": False,
+        },
+    }
+
+
 def _fake_run_quick_benchmark(device_index: int = 0) -> BenchmarkSuiteResult:
     return BenchmarkSuiteResult(
         generated_at="2026-01-01T00:00:00+00:00",
@@ -2621,6 +3038,53 @@ def _write_outcome_pairs_files(tmp_path):
         encoding="utf-8",
     )
     return pairs
+
+
+def _write_training_dataset_jsonl(tmp_path):
+    dataset_path = tmp_path / "training_dataset.jsonl"
+    rows = [
+        _training_row("row-1", "train", "improved", 0.0),
+        _training_row("row-2", "train", "improved", 0.2),
+        _training_row("row-3", "train", "regressed", 9.0),
+        _training_row("row-4", "train", "regressed", 9.2),
+        _training_row("row-5", "validation", "improved", 0.1),
+        _training_row("row-6", "validation", "regressed", 9.1),
+    ]
+    dataset_path.write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+    return dataset_path
+
+
+def _training_row(row_id: str, split: str, label: str, signal: float) -> dict:
+    return {
+        "row_id": row_id,
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "schema_version": "dataset.row.v1",
+        "source": "cli_test",
+        "row_type": "optimization_outcome",
+        "hardware": {"gpu_name": "NVIDIA Test GPU"},
+        "workload": {"batch_size": 32},
+        "features": {
+            "workload_family": "cli_fixture",
+            "safe_signal": signal,
+        },
+        "metrics": {"fp32_samples_per_sec": 100.0},
+        "label": {"value": label, "source": "comparison"},
+        "privacy": {
+            "contains_raw_source": False,
+            "contains_raw_diff": False,
+            "contains_stdout": False,
+            "contains_stderr": False,
+            "contains_sensitive_path": False,
+            "notes": [],
+        },
+        "split": split,
+        "quality_score": 1.0,
+        "warnings": [],
+        "metadata": {},
+    }
 
 
 def _complete_compare_benchmark(best_fp16_tflops: float) -> dict:

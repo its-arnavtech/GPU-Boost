@@ -23,6 +23,29 @@ from gpuboost.dataset.outcome_collection import (
 from gpuboost.history.compare import compare_history_runs
 from gpuboost.history.store import list_history_runs, load_history_run
 from gpuboost.inspector.profile import collect_profile
+from gpuboost.model.artifacts import (
+    DEFAULT_ARTIFACT_DIR,
+    save_neural_model_artifact,
+    validate_model_artifact,
+)
+from gpuboost.model.feature_encoding import build_encoded_training_dataset
+from gpuboost.model.neural_reports import write_neural_training_reports
+from gpuboost.model.neural_training import (
+    run_neural_config_search,
+    run_neural_hyperparameter_search,
+    train_best_neural_model_for_artifact,
+    train_neural_model_for_artifact_config,
+)
+from gpuboost.model.provider import TrainedLocalModelProvider
+from gpuboost.model.training_data import load_training_rows_jsonl
+from gpuboost.model.training_pipeline import (
+    BASELINE_COMPARISON_SCHEMA_VERSION,
+    run_baseline_model_comparison,
+)
+from gpuboost.model.training_reports import (
+    DEFAULT_BASELINE_REPORT_DIR,
+    write_baseline_comparison_reports,
+)
 from gpuboost.patching.diff import generate_patch_plan_diff
 from gpuboost.patching.planner import create_patch_plan_from_analysis
 from gpuboost.schemas.agent import AgentRunResult
@@ -34,7 +57,9 @@ from gpuboost.schemas.history import (
     HistorySummary,
     HistoryValue,
 )
+from gpuboost.schemas.model import ModelFeatureSet, ModelInput
 from gpuboost.schemas.recommendation import AdvisorResult
+from gpuboost.schemas.training import NeuralSearchResult, NeuralTrainingConfig
 from gpuboost.utils.formatting import format_benchmark_suite, format_profile
 
 
@@ -163,6 +188,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include optional model inference metadata in the workflow result.",
     )
     agent_optimize_parser.add_argument(
+        "--model-artifact",
+        dest="model_artifact_path",
+        help="Use a local trained model artifact for advisory prediction.",
+    )
+    agent_optimize_parser.add_argument(
         "--test",
         dest="test_command",
         help="Explicit test command to run inside the trial workspace.",
@@ -248,6 +278,118 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory for outcome dataset and reports.",
     )
     collect_outcomes_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    model_parser = subparsers.add_parser(
+        "model",
+        help="Run local model training/evaluation workflows.",
+    )
+    model_subparsers = model_parser.add_subparsers(dest="model_command")
+
+    evaluate_baselines_parser = model_subparsers.add_parser(
+        "evaluate-baselines",
+        help="Evaluate dependency-free structured baseline models.",
+    )
+    evaluate_baselines_parser.add_argument(
+        "--dataset",
+        default="data/gpuboost/generated/training_dataset.jsonl",
+        help="DatasetRow JSONL file to evaluate.",
+    )
+    evaluate_baselines_parser.add_argument(
+        "--output-dir",
+        default=DEFAULT_BASELINE_REPORT_DIR,
+        help="Directory for baseline comparison reports.",
+    )
+    evaluate_baselines_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    train_neural_parser = model_subparsers.add_parser(
+        "train-neural",
+        help="Train a small local neural model from scratch.",
+    )
+    train_neural_parser.add_argument(
+        "--dataset",
+        default="data/gpuboost/generated/training_dataset.jsonl",
+        help="DatasetRow JSONL file to train on.",
+    )
+    train_neural_parser.add_argument(
+        "--output-dir",
+        default=DEFAULT_BASELINE_REPORT_DIR,
+        help="Directory for neural training reports.",
+    )
+    train_neural_parser.add_argument(
+        "--max-epochs",
+        type=int,
+        default=100,
+        help="Maximum epochs per neural candidate.",
+    )
+    train_neural_parser.add_argument(
+        "--hidden-sizes",
+        help="Comma-separated hidden layer sizes for a single config, e.g. 32,16.",
+    )
+    train_neural_parser.add_argument(
+        "--target-macro-f1",
+        type=float,
+        default=0.85,
+        help="Aspirational validation macro F1 target.",
+    )
+    train_neural_parser.add_argument(
+        "--max-candidates",
+        type=int,
+        default=12,
+        help="Maximum search candidates to train.",
+    )
+    train_neural_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+    train_neural_parser.add_argument(
+        "--save-artifact",
+        action="store_true",
+        help="Save an explicit local model artifact.",
+    )
+    train_neural_parser.add_argument(
+        "--artifact-dir",
+        default=DEFAULT_ARTIFACT_DIR,
+        help="Directory for generated model artifacts.",
+    )
+    train_neural_parser.add_argument(
+        "--artifact-name",
+        help="Optional artifact directory name.",
+    )
+
+    validate_artifact_parser = model_subparsers.add_parser(
+        "validate-artifact",
+        help="Validate a saved local model artifact manifest.",
+    )
+    validate_artifact_parser.add_argument("manifest_path")
+    validate_artifact_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    predict_artifact_parser = model_subparsers.add_parser(
+        "predict-artifact",
+        help="Run local prediction from a saved model artifact.",
+    )
+    predict_artifact_parser.add_argument("manifest_path")
+    predict_artifact_parser.add_argument(
+        "--features-json",
+        help="JSON object of safe feature values.",
+    )
+    predict_artifact_parser.add_argument(
+        "--features-file",
+        help="Path to a JSON object of safe feature values.",
+    )
+    predict_artifact_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON output.",
@@ -417,8 +559,10 @@ def main(argv: list[str] | None = None) -> int:
                 workflow_kwargs = {
                     "script_path": args.script_path,
                     "quick": args.quick,
-                    "model": args.model,
+                    "model": args.model or bool(args.model_artifact_path),
                 }
+                if args.model_artifact_path is not None:
+                    workflow_kwargs["model_artifact_path"] = args.model_artifact_path
                 if args.trial:
                     workflow_kwargs["trial"] = True
                 if args.test_command is not None:
@@ -489,6 +633,22 @@ def main(argv: list[str] | None = None) -> int:
         print("GPUBoost Dataset\nAvailable commands: collect-outcomes")
         return 0
 
+    if args.command == "model":
+        if args.model_command == "evaluate-baselines":
+            return _run_model_evaluate_baselines(args)
+        if args.model_command == "train-neural":
+            return _run_model_train_neural(args)
+        if args.model_command == "validate-artifact":
+            return _run_model_validate_artifact(args)
+        if args.model_command == "predict-artifact":
+            return _run_model_predict_artifact(args)
+
+        print(
+            "GPUBoost Model\nAvailable commands: evaluate-baselines, train-neural, "
+            "validate-artifact, predict-artifact"
+        )
+        return 0
+
     parser.print_help()
     return 0
 
@@ -535,6 +695,223 @@ def _run_dataset_collect_outcomes(args: argparse.Namespace) -> int:
     else:
         print(render_dataset_collect_outcomes_human(summary))
     return 0
+
+
+def _run_model_evaluate_baselines(args: argparse.Namespace) -> int:
+    try:
+        dataset_path = Path(args.dataset)
+        if not dataset_path.exists():
+            raise FileNotFoundError(f"Dataset file not found: {args.dataset}")
+        rows = load_training_rows_jsonl(str(dataset_path))
+        dataset = build_encoded_training_dataset(rows)
+        comparison = run_baseline_model_comparison(dataset)
+        output_files = write_baseline_comparison_reports(comparison, args.output_dir)
+    except (OSError, ValueError) as error:
+        error_message = _format_exception_message(error)
+        if args.json:
+            print(
+                json.dumps(
+                    build_model_evaluate_baselines_error_payload(error_message),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(render_model_evaluate_baselines_error_human(error_message))
+        return 1
+
+    result = dict(comparison)
+    result["output_files"] = output_files
+    if args.json:
+        print(
+            json.dumps(
+                build_model_evaluate_baselines_json_payload(result),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_model_evaluate_baselines_human(result))
+    return 0 if comparison.get("status") == "ok" else 1
+
+
+def _run_model_train_neural(args: argparse.Namespace) -> int:
+    try:
+        dataset_path = Path(args.dataset)
+        if not dataset_path.exists():
+            raise FileNotFoundError(f"Dataset file not found: {args.dataset}")
+        rows = load_training_rows_jsonl(str(dataset_path))
+        dataset = build_encoded_training_dataset(rows)
+        baseline = run_baseline_model_comparison(dataset)
+        baseline_macro_f1 = _optional_float(baseline.get("best_macro_f1"))
+        baseline_model_name = _optional_string(baseline.get("best_model_name"))
+        hidden_sizes = _parse_hidden_sizes(args.hidden_sizes)
+        artifact_manifest = None
+        if args.save_artifact and hidden_sizes is None:
+            model, feature_spec, label_mapping, search = train_best_neural_model_for_artifact(
+                dataset,
+                baseline_macro_f1=baseline_macro_f1,
+                target_macro_f1=args.target_macro_f1,
+                max_epochs=args.max_epochs,
+                max_candidates=args.max_candidates,
+            )
+            _attach_baseline_metadata(search, baseline_model_name, baseline_macro_f1)
+            artifact_manifest = save_neural_model_artifact(
+                model,
+                feature_spec,
+                label_mapping,
+                search.best_config,
+                search,
+                output_dir=args.artifact_dir,
+                artifact_name=args.artifact_name,
+            )
+        elif args.save_artifact and hidden_sizes is not None:
+            config = NeuralTrainingConfig(
+                hidden_sizes=hidden_sizes,
+                max_epochs=args.max_epochs,
+            )
+            model, feature_spec, label_mapping, single_result = (
+                train_neural_model_for_artifact_config(
+                    dataset,
+                    config=config,
+                    baseline_macro_f1=baseline_macro_f1,
+                )
+            )
+            search = run_neural_config_search(
+                dataset,
+                [config],
+                baseline_macro_f1=baseline_macro_f1,
+                target_macro_f1=args.target_macro_f1,
+            )
+            search.best_result = single_result
+            search.candidates = [single_result]
+            search.best_config = single_result.config
+            search.best_validation_macro_f1 = (
+                single_result.validation_evaluation.macro_f1
+                if single_result.validation_evaluation is not None
+                else None
+            )
+            search.best_test_macro_f1 = (
+                single_result.test_evaluation.macro_f1
+                if single_result.test_evaluation is not None
+                else None
+            )
+            _attach_baseline_metadata(search, baseline_model_name, baseline_macro_f1)
+            artifact_manifest = save_neural_model_artifact(
+                model,
+                feature_spec,
+                label_mapping,
+                search.best_config,
+                search,
+                output_dir=args.artifact_dir,
+                artifact_name=args.artifact_name,
+            )
+        elif hidden_sizes is None:
+            search = run_neural_hyperparameter_search(
+                dataset,
+                baseline_macro_f1=baseline_macro_f1,
+                target_macro_f1=args.target_macro_f1,
+                max_epochs=args.max_epochs,
+                max_candidates=args.max_candidates,
+            )
+        else:
+            search = run_neural_config_search(
+                dataset,
+                [
+                    NeuralTrainingConfig(
+                        hidden_sizes=hidden_sizes,
+                        max_epochs=args.max_epochs,
+                    )
+                ],
+                baseline_macro_f1=baseline_macro_f1,
+                target_macro_f1=args.target_macro_f1,
+            )
+        _attach_baseline_metadata(search, baseline_model_name, baseline_macro_f1)
+        output_files = write_neural_training_reports(search, args.output_dir)
+    except (OSError, ValueError) as error:
+        error_message = _format_exception_message(error)
+        if args.json:
+            print(
+                json.dumps(
+                    build_model_train_neural_error_payload(error_message),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(render_model_train_neural_error_human(error_message))
+        return 1
+
+    result = search.to_dict()
+    result["output_files"] = output_files
+    result["baseline_comparison"] = baseline
+    if artifact_manifest is not None:
+        manifest_path = artifact_manifest.metadata.get("manifest_path")
+        result["artifact_manifest"] = manifest_path
+    if args.json:
+        print(
+            json.dumps(
+                build_model_train_neural_json_payload(result),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_model_train_neural_human(result))
+    return 0 if search.status == "ok" else 1
+
+
+def _run_model_validate_artifact(args: argparse.Namespace) -> int:
+    result = validate_model_artifact(args.manifest_path)
+    if args.json:
+        print(
+            json.dumps(
+                build_model_validate_artifact_json_payload(result),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_model_validate_artifact_human(result))
+    return 0 if result.get("status") == "ok" else 1
+
+
+def _run_model_predict_artifact(args: argparse.Namespace) -> int:
+    try:
+        features = _load_cli_features(args.features_json, args.features_file)
+        provider = TrainedLocalModelProvider(args.manifest_path, device="cpu")
+        model_input = ModelInput(
+            goal="model predict-artifact",
+            features=ModelFeatureSet(),
+            context={"features": features, "command": "model predict-artifact"},
+        )
+        result = provider.predict(model_input)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        error_message = _format_exception_message(error)
+        if args.json:
+            print(
+                json.dumps(
+                    build_model_predict_artifact_error_payload(error_message),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            print(render_model_predict_artifact_error_human(error_message))
+        return 1
+
+    payload = result.to_dict()
+    if args.json:
+        print(
+            json.dumps(
+                build_model_predict_artifact_json_payload(payload),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_model_predict_artifact_human(payload))
+    return 0 if payload.get("status") == "ok" else 1
 
 
 def _run_history_list(args: argparse.Namespace) -> int:
@@ -719,6 +1096,73 @@ def build_dataset_collect_outcomes_error_payload(error: str) -> dict[str, object
     }
 
 
+def build_model_evaluate_baselines_json_payload(
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": BASELINE_COMPARISON_SCHEMA_VERSION,
+        "command": "model evaluate-baselines",
+        "result": result,
+    }
+
+
+def build_model_evaluate_baselines_error_payload(error: str) -> dict[str, object]:
+    return {
+        "schema_version": BASELINE_COMPARISON_SCHEMA_VERSION,
+        "command": "model evaluate-baselines",
+        "result": None,
+        "error": error,
+    }
+
+
+def build_model_train_neural_json_payload(
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": "training.neural_search_result.v1",
+        "command": "model train-neural",
+        "result": result,
+    }
+
+
+def build_model_train_neural_error_payload(error: str) -> dict[str, object]:
+    return {
+        "schema_version": "training.neural_search_result.v1",
+        "command": "model train-neural",
+        "result": None,
+        "error": error,
+    }
+
+
+def build_model_validate_artifact_json_payload(
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": "training.model_artifact_validation.v1",
+        "command": "model validate-artifact",
+        "result": result,
+    }
+
+
+def build_model_predict_artifact_json_payload(
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": "training.model_artifact_prediction.v1",
+        "command": "model predict-artifact",
+        "result": result,
+    }
+
+
+def build_model_predict_artifact_error_payload(error: str) -> dict[str, object]:
+    return {
+        "schema_version": "training.model_artifact_prediction.v1",
+        "command": "model predict-artifact",
+        "result": None,
+        "error": error,
+    }
+
+
 def render_dataset_collect_outcomes_human(summary: dict[str, object]) -> str:
     lines = [
         "GPUBoost Outcome Collection",
@@ -770,6 +1214,190 @@ def render_dataset_collect_outcomes_error_human(error: str) -> str:
     return "\n".join(
         [
             "GPUBoost Outcome Collection",
+            "Status: error",
+            "",
+            "Error:",
+            f"- {error}",
+        ]
+    )
+
+
+def render_model_evaluate_baselines_human(result: dict[str, object]) -> str:
+    summary = result.get("dataset_summary")
+    summary = summary if isinstance(summary, dict) else {}
+    lines = [
+        "GPUBoost Baseline Model Evaluation",
+        f"Rows: {summary.get('encoded_row_count', 0)} encoded "
+        f"of {summary.get('row_count', 0)} total",
+        f"Labels: {_format_training_counts(summary.get('label_counts'))}",
+        f"Eval split: {result.get('eval_split_used') or 'none'}",
+        f"Best model: {result.get('best_model_name') or 'none'}",
+        "",
+        "Model scores:",
+    ]
+
+    models = result.get("models")
+    if isinstance(models, list) and models:
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            evaluation = model.get("evaluation")
+            evaluation = evaluation if isinstance(evaluation, dict) else {}
+            lines.append(
+                "- "
+                f"{model.get('model_name')}: "
+                f"accuracy={_format_optional_score(evaluation.get('accuracy'))}, "
+                f"macro_f1={_format_optional_score(evaluation.get('macro_f1'))}, "
+                f"status={evaluation.get('status') or 'unknown'}"
+            )
+    else:
+        lines.append("- none")
+
+    output_files = result.get("output_files")
+    if isinstance(output_files, dict):
+        lines.extend(["", "Reports:"])
+        lines.extend(f"- {key}: {value}" for key, value in output_files.items())
+
+    warnings = result.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in warnings)
+
+    lines.extend(
+        [
+            "",
+            "Safety: no production model artifact was saved and no agent "
+            "integration was changed.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_model_evaluate_baselines_error_human(error: str) -> str:
+    return "\n".join(
+        [
+            "GPUBoost Baseline Model Evaluation",
+            "Status: error",
+            "",
+            "Error:",
+            f"- {error}",
+        ]
+    )
+
+
+def render_model_train_neural_human(result: dict[str, object]) -> str:
+    best_result = result.get("best_result")
+    best_result = best_result if isinstance(best_result, dict) else {}
+    validation = best_result.get("validation_evaluation")
+    validation = validation if isinstance(validation, dict) else {}
+    test = best_result.get("test_evaluation")
+    test = test if isinstance(test, dict) else {}
+    baseline = best_result.get("baseline_comparison")
+    baseline = baseline if isinstance(baseline, dict) else {}
+    dataset_summary = _baseline_dataset_summary(result.get("baseline_comparison"))
+    lines = [
+        "GPUBoost Neural Model Training",
+        f"Status: {result.get('status') or 'unknown'}",
+        f"Dataset rows: {dataset_summary.get('encoded_row_count', 0)} encoded "
+        f"of {dataset_summary.get('row_count', 0)} total",
+        f"Classes: {dataset_summary.get('encoded_class_count', 0)}",
+        f"Best validation macro F1: "
+        f"{_format_optional_score(result.get('best_validation_macro_f1'))}",
+        f"Test macro F1: {_format_optional_score(result.get('best_test_macro_f1'))}",
+        f"Best baseline macro F1: "
+        f"{_format_optional_score(baseline.get('best_baseline_macro_f1'))}",
+        f"Beats baseline: {_format_yes_no(result.get('beats_baseline') is True)}",
+        f"Target macro F1: {_format_optional_score(result.get('target_macro_f1'))}",
+        f"Target met: {_format_yes_no(result.get('target_met') is True)}",
+        f"Validation accuracy: {_format_optional_score(validation.get('accuracy'))}",
+        f"Test accuracy: {_format_optional_score(test.get('accuracy'))}",
+    ]
+
+    output_files = result.get("output_files")
+    lines.extend(["", "Output files:"])
+    if isinstance(output_files, dict) and output_files:
+        lines.extend(f"- {key}: {value}" for key, value in output_files.items())
+    else:
+        lines.append("- none")
+
+    warnings = result.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in warnings)
+
+    lines.extend(
+        [
+            "",
+            "Safety: no production model artifact was saved and no agent "
+            "integration was changed.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_model_train_neural_error_human(error: str) -> str:
+    return "\n".join(
+        [
+            "GPUBoost Neural Model Training",
+            "Status: error",
+            "",
+            "Error:",
+            f"- {error}",
+        ]
+    )
+
+
+def render_model_validate_artifact_human(result: dict[str, object]) -> str:
+    lines = [
+        "GPUBoost Model Artifact Validation",
+        f"Status: {result.get('status') or 'unknown'}",
+    ]
+    summary = result.get("manifest_summary")
+    if isinstance(summary, dict) and summary:
+        lines.extend(
+            [
+                f"Model: {summary.get('model_name') or 'unknown'}",
+                f"Input size: {summary.get('input_size') or 0}",
+                f"Output size: {summary.get('output_size') or 0}",
+            ]
+        )
+    errors = result.get("errors")
+    if isinstance(errors, list) and errors:
+        lines.extend(["", "Errors:"])
+        lines.extend(f"- {error}" for error in errors)
+    warnings = result.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in warnings)
+    return "\n".join(lines)
+
+
+def render_model_predict_artifact_human(result: dict[str, object]) -> str:
+    lines = [
+        "GPUBoost Model Artifact Prediction",
+        f"Status: {result.get('status') or 'unknown'}",
+    ]
+    predictions = result.get("predictions")
+    if isinstance(predictions, list) and predictions:
+        prediction = predictions[0]
+        if isinstance(prediction, dict):
+            lines.extend(
+                [
+                    f"Label: {prediction.get('label') or 'unknown'}",
+                    f"Confidence: "
+                    f"{_format_optional_score(prediction.get('confidence'))}",
+                ]
+            )
+    errors = result.get("error")
+    if errors:
+        lines.extend(["", "Error:", f"- {errors}"])
+    return "\n".join(lines)
+
+
+def render_model_predict_artifact_error_human(error: str) -> str:
+    return "\n".join(
+        [
+            "GPUBoost Model Artifact Prediction",
             "Status: error",
             "",
             "Error:",
@@ -959,6 +1587,92 @@ def _format_metric_delta_line(metric: BenchmarkMetricDelta) -> str:
         f"{metric.before} -> {metric.after}{unit_text}"
         f"{percent_text} [{metric.direction}]"
     )
+
+
+def _format_training_counts(value: object) -> str:
+    if not isinstance(value, dict) or not value:
+        return "none"
+    return ", ".join(f"{key}={item}" for key, item in sorted(value.items()))
+
+
+def _parse_hidden_sizes(value: str | None) -> list[int] | None:
+    if value is None:
+        return None
+    hidden_sizes: list[int] = []
+    for item in value.split(","):
+        stripped = item.strip()
+        if not stripped:
+            continue
+        try:
+            hidden_size = int(stripped)
+        except ValueError as error:
+            raise ValueError(f"Invalid --hidden-sizes value: {value}") from error
+        if hidden_size <= 0:
+            raise ValueError("--hidden-sizes values must be positive integers.")
+        hidden_sizes.append(hidden_size)
+    if not hidden_sizes:
+        raise ValueError("--hidden-sizes must include at least one integer.")
+    return hidden_sizes
+
+
+def _attach_baseline_metadata(
+    search: NeuralSearchResult,
+    baseline_model_name: str | None,
+    baseline_macro_f1: float | None,
+) -> None:
+    search.metadata["best_baseline_model_name"] = baseline_model_name
+    search.metadata["best_baseline_macro_f1"] = baseline_macro_f1
+    for candidate in search.candidates:
+        candidate.baseline_comparison["best_baseline_model_name"] = baseline_model_name
+        candidate.baseline_comparison["best_baseline_macro_f1"] = baseline_macro_f1
+        candidate.baseline_comparison["beats_baseline"] = (
+            candidate.validation_evaluation is not None
+            and candidate.validation_evaluation.macro_f1 is not None
+            and baseline_macro_f1 is not None
+            and candidate.validation_evaluation.macro_f1 > baseline_macro_f1
+        )
+
+
+def _optional_float(value: object) -> float | None:
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _optional_string(value: object) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _baseline_dataset_summary(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    summary = value.get("dataset_summary")
+    return summary if isinstance(summary, dict) else {}
+
+
+def _load_cli_features(
+    features_json: str | None,
+    features_file: str | None,
+) -> dict[str, object]:
+    if features_json and features_file:
+        raise ValueError("Use either --features-json or --features-file, not both.")
+    if features_file:
+        data = json.loads(Path(features_file).read_text(encoding="utf-8"))
+    elif features_json:
+        data = json.loads(features_json)
+    else:
+        raise ValueError("predict-artifact requires --features-json or --features-file.")
+    if not isinstance(data, dict):
+        raise ValueError("Artifact prediction features must be a JSON object.")
+    return data
+
+
+def _format_optional_score(value: object) -> str:
+    if not isinstance(value, int | float):
+        return "n/a"
+    return f"{float(value):.4f}"
 
 
 def _format_json_file_error(error: Exception) -> str:
@@ -1314,6 +2028,8 @@ def _redact_agent_result_artifacts(result_dict: dict[str, object]) -> None:
     artifacts["diff"] = None
     artifacts["diff_redacted"] = isinstance(raw_diff, str) and bool(raw_diff)
     artifacts["trial"] = _redacted_trial_artifact(artifacts.get("trial"))
+    if isinstance(artifacts.get("model"), dict):
+        artifacts["model"] = _summarize_agent_model_artifact(artifacts["model"])
     artifacts["raw_artifacts_included"] = False
 
 
@@ -1351,7 +2067,47 @@ def _get_agent_trial_artifact(result: AgentRunResult) -> dict[str, object] | Non
 def _get_agent_model_artifact(result: AgentRunResult) -> dict[str, object] | None:
     model = result.artifacts.get("model")
     if isinstance(model, dict):
-        return model
+        return _summarize_agent_model_artifact(model)
+    return None
+
+
+def _summarize_agent_model_artifact(model: dict[str, object]) -> dict[str, object]:
+    prediction = _first_model_prediction(model)
+    metadata = model.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    probabilities = None
+    if prediction is not None:
+        prediction_metadata = prediction.get("metadata")
+        if isinstance(prediction_metadata, dict):
+            raw_probabilities = prediction_metadata.get("probabilities")
+            if isinstance(raw_probabilities, dict):
+                probabilities = raw_probabilities
+    return {
+        "status": model.get("status"),
+        "provider": metadata.get("provider") or "unknown",
+        "prediction": {
+            "label": prediction.get("label") if prediction else None,
+            "confidence": prediction.get("confidence") if prediction else None,
+        },
+        "probabilities": probabilities,
+        "patch_application_allowed": bool(
+            metadata.get("patch_application_allowed", False)
+        ),
+        "warnings": model.get("warnings") if isinstance(model.get("warnings"), list) else [],
+        "model_available": model.get("model_available"),
+        "fallback_used": model.get("fallback_used"),
+        "model_name": model.get("model_name"),
+        "model_version": model.get("model_version"),
+        "error": model.get("error"),
+    }
+
+
+def _first_model_prediction(model: dict[str, object]) -> dict[str, object] | None:
+    predictions = model.get("predictions")
+    if isinstance(predictions, list) and predictions:
+        first = predictions[0]
+        if isinstance(first, dict):
+            return first
     return None
 
 
@@ -1394,12 +2150,33 @@ def _format_model_output(model: dict[str, object]) -> str:
     return "\n".join(
         [
             "Model:",
+            f"- Provider: {model.get('provider') or 'unknown'}",
             f"- Status: {model.get('status') or 'unknown'}",
             f"- Available: {_format_yes_no(bool(model.get('model_available')))}",
             f"- Fallback used: {_format_yes_no(bool(model.get('fallback_used')))}",
             f"- Model: {model_display}",
+            f"- Prediction: {_model_prediction_label(model)}",
+            f"- Confidence: {_format_optional_score(_model_prediction_confidence(model))}",
+            "- Patch application allowed: "
+            f"{_format_yes_no(bool(model.get('patch_application_allowed')))}",
+            "- Safety: model prediction is advisory only; deterministic checks "
+            "remain authoritative.",
         ]
     )
+
+
+def _model_prediction_label(model: dict[str, object]) -> str:
+    prediction = model.get("prediction")
+    if isinstance(prediction, dict) and prediction.get("label"):
+        return str(prediction["label"])
+    return "none"
+
+
+def _model_prediction_confidence(model: dict[str, object]) -> object:
+    prediction = model.get("prediction")
+    if isinstance(prediction, dict):
+        return prediction.get("confidence")
+    return None
 
 
 def _format_trial_output(trial: dict[str, object] | None) -> str:

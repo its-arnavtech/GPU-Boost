@@ -41,6 +41,7 @@ def test_create_optimize_script_goal_with_script_path() -> None:
         "quick": False,
         "trial": False,
         "model": False,
+        "model_artifact_path": None,
         "test_command": None,
     }
 
@@ -57,6 +58,7 @@ def test_create_optimize_script_goal_without_script_path() -> None:
         "quick": True,
         "trial": False,
         "model": False,
+        "model_artifact_path": None,
         "test_command": None,
     }
 
@@ -93,6 +95,7 @@ def test_run_optimize_script_workflow_defaults_quick_true() -> None:
         "quick": True,
         "trial": False,
         "model": False,
+        "model_artifact_path": None,
         "test_command": None,
     }
 
@@ -107,6 +110,18 @@ def test_workflow_passes_model_option_into_goal() -> None:
     assert result.goal.options["model"] is True
     assert RUN_MODEL_INFERENCE in [action.name for action in result.plan.actions]
     assert result.artifacts["model"] == {"status": "fallback"}
+
+
+def test_workflow_model_artifact_path_enables_model_action() -> None:
+    result, _report = run_optimize_script_workflow(
+        script_path="train.py",
+        handlers=_fake_handlers(include_model=True),
+        model_artifact_path="artifact/manifest.json",
+    )
+
+    assert result.goal.options["model"] is True
+    assert result.goal.options["model_artifact_path"] == "artifact/manifest.json"
+    assert RUN_MODEL_INFERENCE in [action.name for action in result.plan.actions]
 
 
 def test_workflow_artifacts_include_null_model_by_default() -> None:

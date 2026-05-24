@@ -33,6 +33,9 @@ class ModelFeatureSet:
 @dataclass(slots=True)
 class ModelInput:
     run_id: str = "run_001"
+    features: ModelFeatureSet = field(default_factory=ModelFeatureSet)
+    context: dict[str, Any] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -42,6 +45,11 @@ class ModelInput:
 class ModelPrediction:
     id: str
     score: float
+    target: str = "optimization_outcome"
+    label: str = "unknown"
+    confidence: float | None = None
+    rationale: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -211,6 +219,43 @@ def test_provider_outputs_are_json_serializable_through_to_dict(provider: str) -
     assert deserialized["metadata"]["provider"] == provider
 
 
+def test_trained_local_model_provider_loads_and_predicts(tmp_path) -> None:
+    from gpuboost.model.neural import torch_available
+
+    if not torch_available():
+        pytest.skip("PyTorch is unavailable.")
+    from gpuboost.model.provider import TrainedLocalModelProvider
+
+    manifest_path = _write_trained_provider_artifact(tmp_path)
+    provider = TrainedLocalModelProvider(str(manifest_path), device="cpu")
+    model_input = ModelInput(
+        context={"features": {"features.safe_signal": 1.0}},
+    )
+
+    result = provider.predict(model_input)
+
+    assert provider.is_available() is True
+    assert result.status == "ok"
+    assert result.model_available is True
+    assert result.predictions
+    assert result.predictions[0].label in {"improved", "regressed"}
+    assert result.predictions[0].confidence is not None
+    assert result.metadata["provider"] == "trained_local_model"
+    assert result.metadata["patch_application_allowed"] is False
+
+
+def test_trained_local_model_provider_missing_artifact_returns_error() -> None:
+    from gpuboost.model.provider import TrainedLocalModelProvider
+
+    provider = TrainedLocalModelProvider("missing-manifest.json", device="cpu")
+    result = provider.predict(ModelInput())
+
+    assert provider.is_available() is False
+    assert result.status == "error"
+    assert result.fallback_used is True
+    assert "missing-manifest.json" in result.error
+
+
 def test_providers_do_not_make_network_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     from gpuboost.model.provider import NullModelProvider, StaticModelProvider
 
@@ -222,3 +267,60 @@ def test_providers_do_not_make_network_calls(monkeypatch: pytest.MonkeyPatch) ->
 
     NullModelProvider().predict(ModelInput())
     StaticModelProvider().predict(ModelInput())
+
+
+def _write_trained_provider_artifact(tmp_path):
+    from gpuboost.model.artifacts import save_neural_model_artifact
+    from gpuboost.model.neural_training import train_best_neural_model_for_artifact
+    from gpuboost.schemas.training import (
+        EncodedTrainingDataset,
+        TrainingDatasetSummary,
+        TrainingFeatureSpec,
+    )
+
+    feature_spec = TrainingFeatureSpec(
+        feature_names=["features.safe_signal"],
+        categorical_features=[],
+        numeric_features=["features.safe_signal"],
+        boolean_features=[],
+    )
+    X = [[0.0], [0.1], [1.0], [1.1], [0.05], [1.05]]
+    y = [0, 0, 1, 1, 0, 1]
+    split = ["train", "train", "train", "train", "validation", "validation"]
+    dataset = EncodedTrainingDataset(
+        row_ids=[f"row-{index}" for index in range(len(y))],
+        feature_names=feature_spec.feature_names,
+        X=X,
+        y=y,
+        labels=["improved", "regressed"],
+        label_to_index={"improved": 0, "regressed": 1},
+        split=split,
+        summary=TrainingDatasetSummary(
+            row_count=len(y),
+            labeled_count=len(y),
+            skipped_count=0,
+            feature_count=1,
+            label_counts={"improved": 3, "regressed": 3},
+            split_counts={name: split.count(name) for name in set(split)},
+            warnings=[],
+            metadata={},
+        ),
+        feature_spec=feature_spec,
+        warnings=[],
+        metadata={},
+    )
+    model, feature_spec, label_mapping, result = train_best_neural_model_for_artifact(
+        dataset,
+        max_epochs=3,
+        max_candidates=1,
+    )
+    save_neural_model_artifact(
+        model,
+        feature_spec,
+        label_mapping,
+        result.best_config,
+        result,
+        output_dir=str(tmp_path),
+        artifact_name="provider",
+    )
+    return tmp_path / "provider" / "manifest.json"

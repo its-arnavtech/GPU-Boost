@@ -14,6 +14,7 @@ gpuboost agent optimize train.py --trial --test "pytest"
 gpuboost agent optimize train.py --save-history
 python -m gpuboost agent optimize --model
 python -m gpuboost agent optimize --model --json
+python -m gpuboost agent optimize train.py --model-artifact data/gpuboost/generated/model_training/artifacts/<id>/manifest.json
 python -m gpuboost agent optimize .\examples\bad_train_sample.txt --model --trial --json
 ```
 
@@ -49,10 +50,15 @@ With `--trial`, it also:
 The original source file is never modified. GPUBoost does not implement
 `--apply`.
 
-With `--model`, it also routes safe summary features through the Phase 10
-local model interface. No trained GPUBoost model is included yet, no real model
-is loaded, and no external LLM APIs are used. Until a local provider is
-configured in a later phase, the workflow falls back to `NullModelProvider`.
+With `--model`, it also routes safe summary features through the local model
+interface. Without an artifact, the workflow falls back to `NullModelProvider`.
+
+With `--model-artifact <manifest_path>`, model inference is enabled
+automatically and GPUBoost loads the local trained artifact through
+`TrainedLocalModelProvider`. The prediction is advisory only. It cannot apply
+patches, edit files, override deterministic checks, or call external APIs.
+Missing or invalid artifacts produce a clean model fallback/error result instead
+of a traceback.
 
 The demo file `examples/bad_train_sample.txt` is intentionally kept as `.txt`
 so project linters do not treat it as Python:
@@ -134,10 +140,22 @@ status, warnings, and `original_file_unchanged`.
 When `--save-history` succeeds, `artifacts.history_run_id` contains the saved
 history run ID. Without `--save-history`, it is `null`.
 
-Without `--model`, `artifacts.model` is `null`. With `--model`, it contains a
-`ModelInferenceResult` dictionary. The current fallback result has
-`model_available: false`, `fallback_used: true`, `status: "fallback"`, and a
-warning that no local model provider is configured.
+Without `--model` or `--model-artifact`, `artifacts.model` is `null`. With
+model inference enabled, `artifacts.model` contains a stable advisory summary:
+
+```json
+{
+  "status": "ok",
+  "provider": "trained_local_model",
+  "prediction": {"label": "improved", "confidence": 0.91},
+  "probabilities": {"improved": 0.91, "regressed": 0.09},
+  "patch_application_allowed": false,
+  "warnings": []
+}
+```
+
+Fallback results keep `model_available: false`, `fallback_used: true`, and a
+warning explaining why a trained model was not used.
 
 Unexpected workflow exceptions return valid JSON with `result` and `report`
 set to `null`:
@@ -168,7 +186,9 @@ is explicit opt-in and may execute arbitrary user-provided code in the trial
 workspace.
 
 Phase 7 implements the safe trial workspace. Phase 9 adds optional local
-history. Phase 10 adds only the local model interface and fallback provider.
+history. Phase 10 adds the local model interface and fallback provider. Phase
+12.5 allows a saved local model artifact to provide advisory predictions in the
+agent report path.
 
 `--save-history` stores a local SQLite history record under
 `~/.gpuboost/gpuboost.db` by default. It stores script path, script SHA256,
@@ -177,13 +197,12 @@ code, raw diffs, trial stdout, or trial stderr by default. Use
 `--history-db-path` to point at a temporary database for development or tests.
 See [Local History](history.md).
 
-The model feature layer follows the same safety boundary: it uses safe
-summaries only and excludes raw source code, raw diffs, stdout, and stderr.
-The deterministic GPUBoost advisor and measured benchmark data remain the
-source of truth. The model layer may later rank, score, or predict confidence,
-but it cannot apply patches or override measured results. Phase 11 will add
-data collection and validation, Phase 12 will train and integrate GPUBoost's
-own model, and Phase 13 will test the full production system. See
+The model feature layer follows the same safety boundary: it uses safe summaries
+only and excludes raw source code, raw diffs, stdout, stderr, final comparison
+labels, and target-derived before/after/delta fields. The deterministic
+GPUBoost advisor, trial workspace, syntax checks, explicit tests, and measured
+benchmark data remain authoritative. The model may rank, score, or predict
+confidence, but it cannot apply patches or override measured results. See
 [Local Model Interface](model-interface.md).
 
 ## Exit Codes
@@ -201,7 +220,7 @@ JSON preserves action statuses and errors in `result.plan.actions`.
 
 - No auto-apply or `--apply`
 - No external LLM APIs
-- No trained GPUBoost model yet
+- Trained model artifacts are advisory only and not auto-applied
 - Quick benchmark only for now
 - Full benchmark agent mode is not implemented yet
 

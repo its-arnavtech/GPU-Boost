@@ -407,6 +407,37 @@ data validation, and GPUBoost's own model.
 
 - Future phase to train and integrate GPUBoost's own model, starting with a
   baseline structured model rather than fine-tuning
+- Phase 12.1 adds the safe training dataset loader, feature/label encoding,
+  evaluation utilities, and a majority-class sanity baseline. See
+  [Model Training](docs/model-training.md).
+- Phase 12.2 adds dependency-free baseline comparison for
+  majority-class, seeded random, nearest-centroid, and simple KNN models:
+  `python -m gpuboost model evaluate-baselines --json`
+- Baseline reports are written under
+  `data/gpuboost/generated/model_training/` by default; no production model
+  artifact is saved and no predictions are integrated into the agent yet
+- Phase 12.3 adds a small PyTorch MLP trained from scratch on safe encoded
+  structured features: `python -m gpuboost model train-neural --json`
+- Neural training runs a modest validation-selected hyperparameter search,
+  compares against the best baseline, treats `0.85` macro F1 as aspirational,
+  and reports honestly when the target is missed
+- Neural reports are evaluation artifacts only; no production model checkpoint
+  is saved, no LLM is fine-tuned, no external API is called, and no agent
+  integration is changed
+- Phase 12.4 adds explicit local artifact packaging only when requested:
+  `python -m gpuboost model train-neural --save-artifact --json`
+- Artifacts can be checked with
+  `python -m gpuboost model validate-artifact <manifest_path> --json` and used
+  for standalone local predictions with
+  `python -m gpuboost model predict-artifact <manifest_path> --features-json '{...}' --json`
+- Phase 12.5 allows advisory agent predictions with
+  `python -m gpuboost agent optimize train.py --model-artifact <manifest_path>`;
+  the flag automatically enables model inference
+- Saved artifacts live under ignored generated paths by default; model
+  predictions must never apply patches, edit files, or override deterministic
+  GPUBoost checks
+- A future phase should package/integrate a local model only if validation/test
+  evaluation is strong and it meaningfully beats structured baselines
 - Training must use safe feature extraction and must not train on
   target-derived comparison fields such as verdicts, before/after metrics,
   deltas, labels, raw diffs, stdout, or stderr
