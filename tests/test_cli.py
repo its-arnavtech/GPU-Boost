@@ -2219,6 +2219,12 @@ def test_cli_model_help_includes_lifecycle_commands_and_safety(capsys) -> None:
         "safety-check",
     ]:
         assert command in captured.out
+    help_text = captured.out.lower()
+    assert "advisory-only" in help_text
+    assert "local/generated" in help_text
+    assert "--save-artifact is explicit" in help_text
+    assert "cannot apply patches" in help_text
+    assert "quality gate" in help_text
 
 
 def test_cli_model_train_neural_help_mentions_explicit_artifacts(capsys) -> None:
@@ -2263,6 +2269,42 @@ def test_cli_agent_optimize_help_mentions_model_artifact_advisory(capsys) -> Non
     assert "--model-artifact" in help_text
     assert "advisory-only" in help_text
     assert "cannot apply patches" in help_text
+
+
+def test_cli_agent_optimize_model_artifact_human_output_has_safety_note(
+    monkeypatch,
+    capsys,
+) -> None:
+    def fake_run_optimize_script_workflow(
+        script_path: str | None = None,
+        quick: bool = True,
+        model: bool = False,
+        model_artifact_path: str | None = None,
+    ) -> tuple[AgentRunResult, AgentReport]:
+        assert model is True
+        assert model_artifact_path == "artifact/manifest.json"
+        return _fake_agent_result_and_report(
+            script_path=script_path,
+            quick=quick,
+            model_artifact=_fake_trained_model_artifact(),
+        )
+
+    monkeypatch.setattr(
+        cli_main,
+        "run_optimize_script_workflow",
+        fake_run_optimize_script_workflow,
+    )
+
+    exit_code = cli_main.main(
+        ["agent", "optimize", "train.py", "--model-artifact", "artifact/manifest.json"]
+    )
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "Model:" in captured.out
+    assert "model prediction is advisory only" in captured.out
+    assert "cannot apply patches" in captured.out
+    assert captured.err == ""
 
 
 def test_cli_model_safety_check_json(capsys) -> None:
@@ -2489,6 +2531,34 @@ def test_cli_model_train_neural_save_artifact_human_output_includes_next_steps(
     assert "python -m gpuboost model validate-artifact" in captured.out
     assert "python -m gpuboost agent optimize <script> --model-artifact" in captured.out
     assert "- Patch application allowed: no" in captured.out
+    assert "advisory-only" in captured.out
+
+
+def test_cli_model_train_neural_without_save_artifact_does_not_claim_saved_artifact() -> None:
+    output = cli_main.render_model_train_neural_human(
+        _fake_neural_training_render_result()
+    )
+
+    assert "Artifact:" not in output
+    assert "Use in agent:" not in output
+    assert "artifact saved only because --save-artifact was provided" not in output
+    assert "--save-artifact was not provided" in output
+    assert "advisory-only" in output
+
+
+def test_cli_model_train_neural_with_save_artifact_includes_validate_and_use_steps() -> None:
+    manifest_path = "data/gpuboost/generated/model_training/artifacts/local/manifest.json"
+    output = cli_main.render_model_train_neural_human(
+        _fake_neural_training_render_result(manifest_path=manifest_path)
+    )
+
+    assert "Artifact:" in output
+    assert f"python -m gpuboost model validate-artifact {manifest_path}" in output
+    assert (
+        "python -m gpuboost agent optimize <script> "
+        f"--model-artifact {manifest_path}"
+    ) in output
+    assert "advisory-only" in output
 
 
 def test_cli_model_list_artifacts_human_output(tmp_path, capsys) -> None:
@@ -2552,6 +2622,33 @@ def test_cli_model_show_artifact_json_output(tmp_path, capsys) -> None:
     assert data["result"]["model_name"] == "mlp_classifier"
     assert data["result"]["validation_status"] == "ok"
     assert str(tmp_path) not in captured.out
+
+
+def test_cli_model_show_artifact_missing_manifest_human_is_clean(capsys) -> None:
+    exit_code = cli_main.main(["model", "show-artifact", "missing-manifest.json"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "GPUBoost Model Artifact" in captured.out
+    assert "Status: error" in captured.out
+    assert "missing-manifest.json" in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_model_show_artifact_missing_manifest_json_is_clean(capsys) -> None:
+    exit_code = cli_main.main(
+        ["model", "show-artifact", "missing-manifest.json", "--json"]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["schema_version"] == "training.model_artifact.show.v1"
+    assert data["result"]["validation_status"] == "error"
+    assert "missing-manifest.json" in data["result"]["validation_errors"][0]
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
 
 
 def test_cli_model_check_artifact_pass_and_fail(tmp_path, capsys) -> None:
@@ -2623,6 +2720,29 @@ def test_cli_model_predict_artifact_missing_manifest_json(capsys) -> None:
     assert exit_code == 1
     assert data["result"]["status"] == "error"
     assert "missing-manifest.json" in data["result"]["error"]
+
+
+def test_cli_model_predict_artifact_invalid_features_json_is_clean(capsys) -> None:
+    exit_code = cli_main.main(
+        [
+            "model",
+            "predict-artifact",
+            "missing-manifest.json",
+            "--features-json",
+            "{not json",
+            "--json",
+        ]
+    )
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["schema_version"] == "training.model_artifact_prediction.v1"
+    assert data["result"] is None
+    assert data["error"].startswith("Invalid JSON:")
+    assert "GPUBoost Model Artifact Prediction" not in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
 
 
 def test_cli_history_list_human_output_with_no_runs(tmp_path, capsys) -> None:
@@ -3176,6 +3296,40 @@ def _fake_trained_model_artifact() -> dict[str, object]:
             "patch_application_allowed": False,
         },
     }
+
+
+def _fake_neural_training_render_result(
+    manifest_path: str | None = None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "status": "ok",
+        "best_result": {
+            "validation_evaluation": {"accuracy": 0.75},
+            "test_evaluation": {"accuracy": 0.70},
+            "baseline_comparison": {"best_baseline_macro_f1": 0.50},
+        },
+        "best_validation_macro_f1": 0.75,
+        "best_test_macro_f1": 0.70,
+        "beats_baseline": True,
+        "target_macro_f1": 0.85,
+        "target_met": False,
+        "baseline_comparison": {
+            "dataset_summary": {
+                "encoded_row_count": 6,
+                "row_count": 6,
+                "encoded_class_count": 2,
+            }
+        },
+        "output_files": {
+            "json_report": "data/gpuboost/generated/model_training/neural_training_report.json",
+            "markdown_report": "data/gpuboost/generated/model_training/neural_training_report.md",
+        },
+        "warnings": [],
+    }
+    if manifest_path is not None:
+        result["artifact_manifest_path"] = manifest_path
+        result["artifact_validation_status"] = "ok"
+    return result
 
 
 def _fake_run_quick_benchmark(device_index: int = 0) -> BenchmarkSuiteResult:

@@ -26,7 +26,7 @@ def build_controlled_outcome_grid(
 ) -> list[dict]:
     """Return deterministic controlled outcome pair specs without executing them."""
 
-    output_path = Path(output_root)
+    output_path = _path_from_text(output_root)
     pairs = _interleave_pair_groups(
         [
             _dataloader_pairs(output_path),
@@ -49,7 +49,7 @@ def write_grid_pairs_file(
 ) -> str:
     """Write a collect-outcomes-compatible pairs JSON file."""
 
-    path = Path(output_path)
+    path = _path_from_text(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     records = [
         {
@@ -79,7 +79,7 @@ def write_grid_runner_manifest(
 ) -> str:
     """Write a manifest with scripts and arguments for the PowerShell runner."""
 
-    path = Path(output_path)
+    path = _path_from_text(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": GRID_SCHEMA_VERSION,
@@ -442,10 +442,10 @@ def _interleave_pair_groups(groups: list[list[dict]]) -> list[dict]:
 
 def _relative_path(path: str, base_dir: Path) -> str:
     try:
-        relative = os.path.relpath(Path(path), base_dir)
+        relative = os.path.relpath(_path_from_text(path), base_dir)
     except ValueError:
-        return _posix(Path(path))
-    return _posix(Path(relative))
+        return _posix(_path_from_text(path))
+    return _posix(_path_from_text(relative))
 
 
 def _safe_scalar_dict(value: Any) -> dict[str, str | int | float | bool | None]:
@@ -463,7 +463,11 @@ def _bool_arg(value: bool) -> str:
 
 
 def _posix(path: Path) -> str:
-    return path.as_posix()
+    return path.as_posix().replace("\\", "/")
+
+
+def _path_from_text(value: str) -> Path:
+    return Path(value.replace("\\", "/"))
 
 
 if __name__ == "__main__":

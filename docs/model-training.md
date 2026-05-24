@@ -181,6 +181,10 @@ Artifact files remain local generated files and are ignored by Git. They do not
 involve external APIs, scraping, or LLM fine-tuning. Model predictions are
 advisory only, cannot apply patches, and cannot override deterministic
 GPUBoost checks, trials, syntax checks, tests, or benchmark evidence.
+The CLI help and human output repeat these boundaries: `--save-artifact` is
+explicit, `check-artifact` is a read-only quality gate, and JSON mode returns
+valid JSON error payloads for missing datasets, invalid feature JSON, and
+missing or invalid artifact manifests.
 
 The final Phase 12 release-readiness command set is:
 

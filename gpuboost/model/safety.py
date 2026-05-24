@@ -7,6 +7,18 @@ from pathlib import Path
 
 MODEL_WORKFLOW_SAFETY_SCHEMA_VERSION = "training.model_workflow_safety.v1"
 _ARTIFACT_EXTENSIONS = ("*.pt", "*.pth", "*.onnx", "*.safetensors", "*.pkl", "*.joblib")
+_LOCAL_DB_PATTERNS = ("*.db", "*.sqlite", "*.sqlite3")
+_CACHE_PATTERNS = ("__pycache__/", ".pytest_cache/", ".ruff_cache/", ".cache/")
+_ENV_SECRET_PATTERNS = (
+    ".env",
+    ".env.*",
+    "secrets/",
+    "credentials/",
+    "*.pem",
+    "*.key",
+    "*.token",
+    "*.secret",
+)
 
 
 def verify_model_workflow_safety() -> dict[str, object]:
@@ -29,7 +41,15 @@ def verify_model_workflow_safety() -> dict[str, object]:
         "artifact_extensions_ignored": all(
             extension in gitignore for extension in _ARTIFACT_EXTENSIONS
         ),
+        "local_db_artifacts_ignored": all(
+            pattern in gitignore for pattern in _LOCAL_DB_PATTERNS
+        ),
+        "cache_dirs_ignored": all(pattern in gitignore for pattern in _CACHE_PATTERNS),
+        "env_secret_patterns_ignored": all(
+            pattern in gitignore for pattern in _ENV_SECRET_PATTERNS
+        ),
         "raw_data_ignored": "data/gpuboost/raw/" in gitignore,
+        "patch_application_allowed": False,
         "model_patch_application_allowed_false_documented": (
             "patch_application_allowed=false" in docs_text
             or "patch_application_allowed: false" in docs_text
@@ -43,16 +63,20 @@ def verify_model_workflow_safety() -> dict[str, object]:
             and "artifact_manifest_path" not in _read_text(Path("pyproject.toml"))
         ),
     }
+    expected_false_checks = {"patch_application_allowed"}
     warnings = [
         f"Safety check failed: {name}"
         for name, passed in checks.items()
-        if not passed
+        if not passed and name not in expected_false_checks
     ]
     hard_failures = [
         name
         for name in (
             "generated_dir_ignored",
             "artifact_extensions_ignored",
+            "local_db_artifacts_ignored",
+            "cache_dirs_ignored",
+            "env_secret_patterns_ignored",
             "raw_data_ignored",
             "provider_patch_application_allowed_false",
         )

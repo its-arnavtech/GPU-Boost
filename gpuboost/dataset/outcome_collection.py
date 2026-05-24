@@ -123,8 +123,8 @@ def collect_outcome_from_benchmark_json(
 ) -> tuple[DatasetRow, ComparisonResult]:
     """Compare two local benchmark JSON files and return a labeled dataset row."""
 
-    baseline_path = Path(baseline_json_path)
-    optimized_path = Path(optimized_json_path)
+    baseline_path = _path_from_text(baseline_json_path)
+    optimized_path = _path_from_text(optimized_json_path)
     baseline = _load_benchmark_json(baseline_path)
     optimized = _load_benchmark_json(optimized_path)
     resolved_row_id = row_id or _derive_row_id(
@@ -175,7 +175,7 @@ def collect_outcomes_from_pairs(
 def load_outcome_pairs_file(filepath: str) -> list[dict]:
     """Load and validate a local outcome pair JSON file."""
 
-    path = Path(filepath)
+    path = _path_from_text(filepath)
     try:
         loaded = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as exc:
@@ -206,13 +206,13 @@ def collect_outcomes_from_pairs_file(
     """Collect labeled outcome rows from a local pair file and export artifacts."""
 
     generated_at = create_timestamp()
-    output_path = Path(output_dir)
+    output_path = _path_from_text(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
     warnings: list[str] = []
     errors: list[dict[str, DatasetValue]] = []
     pairs = load_outcome_pairs_file(pairs_file)
-    pairs_base_dir = Path(pairs_file).parent
+    pairs_base_dir = _path_from_text(pairs_file).parent
     rows: list[DatasetRow] = []
 
     for index, pair in enumerate(pairs):
@@ -404,7 +404,7 @@ def _normalize_pair(pair: dict, index: int) -> dict:
 def _resolve_pair_paths(pair: dict, base_dir: Path) -> dict:
     resolved = dict(pair)
     for key in ("baseline_json_path", "optimized_json_path"):
-        path = Path(str(pair[key]))
+        path = _path_from_text(str(pair[key]))
         if not path.is_absolute():
             path = base_dir / path
         resolved[key] = str(path)
@@ -438,7 +438,7 @@ def _write_outcome_artifacts(
     row: DatasetRow,
     comparison: ComparisonResult,
 ) -> None:
-    output_path = Path(output_dir)
+    output_path = _path_from_text(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     stem = _safe_file_stem(row.row_id) or "outcome"
     _write_json(output_path / f"{stem}.comparison.json", comparison.to_dict())
@@ -451,6 +451,10 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
         json.dumps(data, indent=2, sort_keys=True),
         encoding="utf-8",
     )
+
+
+def _path_from_text(value: str) -> Path:
+    return Path(value.replace("\\", "/"))
 
 
 def _build_collection_markdown(summary: dict[str, Any]) -> str:
