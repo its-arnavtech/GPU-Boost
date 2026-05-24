@@ -1,8 +1,12 @@
 # Model Training
 
-Phase 12 starts with local structured baseline models, not LLM fine-tuning. It
-does not call external LLM APIs, download datasets, scrape websites, or train a
-large production model.
+Phase 12 adds GPUBoost's local model workflow: safe training data loading, safe
+feature extraction, baseline model comparison, small neural MLP training from
+scratch, artifact save/load/validation, direct artifact prediction, and
+advisory-only agent integration. It starts with local structured models, not
+LLM fine-tuning, and does not call external LLM APIs, download datasets, scrape
+websites, train a large production model, guarantee optimization success, or
+make model predictions authoritative.
 
 The training path must load `DatasetRow` records and convert them through the
 safe training feature extraction layer in `gpuboost.dataset.training_features`.
@@ -177,3 +181,23 @@ Artifact files remain local generated files and are ignored by Git. They do not
 involve external APIs, scraping, or LLM fine-tuning. Model predictions are
 advisory only, cannot apply patches, and cannot override deterministic
 GPUBoost checks, trials, syntax checks, tests, or benchmark evidence.
+
+The final Phase 12 release-readiness command set is:
+
+```bash
+python -m gpuboost model evaluate-baselines --json
+python -m gpuboost model train-neural --max-epochs 50 --max-candidates 12 --target-macro-f1 0.85 --json
+python -m gpuboost model train-neural --max-epochs 50 --max-candidates 12 --target-macro-f1 0.85 --save-artifact --json
+python -m gpuboost model list-artifacts
+python -m gpuboost model show-artifact <manifest>
+python -m gpuboost model check-artifact <manifest> --min-test-macro-f1 0.75 --require-beats-baseline
+python -m gpuboost model validate-artifact <manifest>
+python -m gpuboost model predict-artifact <manifest> --features-json '{"features.workload_family":"amp","features.batch_size":16}' --json
+python -m gpuboost agent optimize <script> --model-artifact <manifest> --json
+python -m gpuboost model safety-check --json
+```
+
+Agent JSON redacts raw source, raw diffs, stdout, and stderr by default. Trained
+artifact predictions report `patch_application_allowed=false`. Generated model
+artifacts remain under ignored `data/gpuboost/generated/` paths and must not be
+committed.

@@ -2202,6 +2202,81 @@ def test_cli_model_evaluate_baselines_missing_dataset_error(capsys) -> None:
     assert captured.err == ""
 
 
+def test_cli_model_help_includes_lifecycle_commands_and_safety(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main.main(["model", "--help"])
+    captured = capsys.readouterr()
+
+    assert exc.value.code == 0
+    for command in [
+        "evaluate-baselines",
+        "train-neural",
+        "list-artifacts",
+        "show-artifact",
+        "check-artifact",
+        "validate-artifact",
+        "predict-artifact",
+        "safety-check",
+    ]:
+        assert command in captured.out
+
+
+def test_cli_model_train_neural_help_mentions_explicit_artifacts(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main.main(["model", "train-neural", "--help"])
+    captured = capsys.readouterr()
+
+    assert exc.value.code == 0
+    assert "--save-artifact" in captured.out
+    assert "explicitly save" in captured.out.lower()
+    assert "local generated model artifact" in captured.out.lower()
+
+
+def test_cli_model_check_artifact_help_mentions_quality_gate(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main.main(["model", "check-artifact", "--help"])
+    captured = capsys.readouterr()
+
+    assert exc.value.code == 0
+    help_text = captured.out.lower()
+    assert "quality gates" in help_text
+    assert "does not train" in help_text
+
+
+def test_cli_model_predict_artifact_help_mentions_advisory(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main.main(["model", "predict-artifact", "--help"])
+    captured = capsys.readouterr()
+
+    assert exc.value.code == 0
+    assert "advisory" in captured.out.lower()
+    assert "cannot apply patches" in captured.out.lower()
+
+
+def test_cli_agent_optimize_help_mentions_model_artifact_advisory(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main.main(["agent", "optimize", "--help"])
+    captured = capsys.readouterr()
+
+    assert exc.value.code == 0
+    help_text = " ".join(captured.out.split())
+    assert "--model-artifact" in help_text
+    assert "advisory-only" in help_text
+    assert "cannot apply patches" in help_text
+
+
+def test_cli_model_safety_check_json(capsys) -> None:
+    exit_code = cli_main.main(["model", "safety-check", "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["schema_version"] == "training.model_workflow_safety.v1"
+    assert data["command"] == "model safety-check"
+    assert data["result"]["status"] in {"ok", "warning"}
+    assert data["result"]["generated_dir_ignored"] is True
+
+
 def test_cli_model_train_neural_human_output(tmp_path, capsys) -> None:
     from gpuboost.model.neural import torch_available
 

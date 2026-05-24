@@ -58,7 +58,8 @@ automatically and GPUBoost loads the local trained artifact through
 `TrainedLocalModelProvider`. The prediction is advisory only. It cannot apply
 patches, edit files, override deterministic checks, or call external APIs.
 Missing or invalid artifacts produce a clean model fallback/error result instead
-of a traceback.
+of a traceback. The trained provider reports
+`patch_application_allowed=false`.
 
 Artifacts can be discovered and checked before agent use:
 
@@ -217,7 +218,9 @@ confidence, but it cannot apply patches or override measured results. See
 Generated model artifacts live under the ignored
 `data/gpuboost/generated/model_training/artifacts/` directory by default. They
 are local files only; GPUBoost does not upload them, call external model APIs,
-or fine-tune an LLM.
+fine-tune an LLM, or guarantee optimization success. Agent JSON redacts raw
+source, raw diffs, stdout, and stderr by default unless raw artifacts are
+explicitly requested.
 
 ## Exit Codes
 

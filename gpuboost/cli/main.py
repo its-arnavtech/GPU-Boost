@@ -39,6 +39,10 @@ from gpuboost.model.neural_training import (
     train_neural_model_for_artifact_config,
 )
 from gpuboost.model.provider import TrainedLocalModelProvider
+from gpuboost.model.safety import (
+    MODEL_WORKFLOW_SAFETY_SCHEMA_VERSION,
+    verify_model_workflow_safety,
+)
 from gpuboost.model.training_data import load_training_rows_jsonl
 from gpuboost.model.training_pipeline import (
     BASELINE_COMPARISON_SCHEMA_VERSION,
@@ -192,7 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
     agent_optimize_parser.add_argument(
         "--model-artifact",
         dest="model_artifact_path",
-        help="Use a local trained model artifact for advisory prediction.",
+        help=(
+            "Use a local trained model artifact for advisory-only inference; "
+            "model predictions cannot apply patches."
+        ),
     )
     agent_optimize_parser.add_argument(
         "--test",
@@ -293,7 +300,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     evaluate_baselines_parser = model_subparsers.add_parser(
         "evaluate-baselines",
-        help="Evaluate dependency-free structured baseline models.",
+        help="Evaluate safe structured baseline models without saving artifacts.",
+        description=(
+            "Evaluate dependency-free baselines on safe encoded training data. "
+            "This command does not train a neural model or save model artifacts."
+        ),
     )
     evaluate_baselines_parser.add_argument(
         "--dataset",
@@ -314,6 +325,11 @@ def build_parser() -> argparse.ArgumentParser:
     train_neural_parser = model_subparsers.add_parser(
         "train-neural",
         help="Train a small local neural model from scratch.",
+        description=(
+            "Train a small local MLP from scratch on safe encoded features. "
+            "Artifacts are local generated files and are saved only with "
+            "the explicit --save-artifact flag."
+        ),
     )
     train_neural_parser.add_argument(
         "--dataset",
@@ -355,7 +371,7 @@ def build_parser() -> argparse.ArgumentParser:
     train_neural_parser.add_argument(
         "--save-artifact",
         action="store_true",
-        help="Save an explicit local model artifact.",
+        help="Explicitly save a local generated model artifact.",
     )
     train_neural_parser.add_argument(
         "--artifact-dir",
@@ -369,7 +385,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_artifacts_parser = model_subparsers.add_parser(
         "list-artifacts",
-        help="List saved local model artifacts.",
+        help="List local generated model artifacts.",
+        description=(
+            "List local generated model artifact manifests. This command only "
+            "reads manifests and does not inspect model weights."
+        ),
     )
     list_artifacts_parser.add_argument(
         "--artifacts-dir",
@@ -384,7 +404,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     show_artifact_parser = model_subparsers.add_parser(
         "show-artifact",
-        help="Show a safe summary for one model artifact.",
+        help="Show a safe summary for one local model artifact.",
+        description=(
+            "Show manifest metrics and validation status without printing model "
+            "weights, raw source, raw diffs, stdout, or stderr."
+        ),
     )
     show_artifact_parser.add_argument("manifest_path")
     show_artifact_parser.add_argument(
@@ -395,9 +419,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     check_artifact_parser = model_subparsers.add_parser(
         "check-artifact",
-        help="Validate a model artifact against local quality gates.",
+        help="Run read-only quality gates for a local model artifact.",
+        description=(
+            "Validate a local model artifact and check quality gates. "
+            "This command does not train, mutate files, or select artifacts "
+            "for the agent automatically."
+        ),
     )
-    check_artifact_parser.add_argument("manifest_path")
+    check_artifact_parser.add_argument(
+        "manifest_path",
+        help="Artifact manifest to check; does not train or mutate files.",
+    )
     check_artifact_parser.add_argument(
         "--min-test-macro-f1",
         type=float,
@@ -422,7 +454,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_artifact_parser = model_subparsers.add_parser(
         "validate-artifact",
-        help="Validate a saved local model artifact manifest.",
+        help="Validate a saved local generated model artifact manifest.",
     )
     validate_artifact_parser.add_argument("manifest_path")
     validate_artifact_parser.add_argument(
@@ -433,7 +465,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     predict_artifact_parser = model_subparsers.add_parser(
         "predict-artifact",
-        help="Run local prediction from a saved model artifact.",
+        help="Run advisory local prediction from a saved model artifact.",
+        description=(
+            "Run local prediction from safe feature JSON. Predictions are "
+            "advisory only and cannot apply patches."
+        ),
     )
     predict_artifact_parser.add_argument("manifest_path")
     predict_artifact_parser.add_argument(
@@ -445,6 +481,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to a JSON object of safe feature values.",
     )
     predict_artifact_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    safety_check_parser = model_subparsers.add_parser(
+        "safety-check",
+        help="Verify Phase 12 local model workflow safety guardrails.",
+        description=(
+            "Inspect docs, ignore rules, and provider metadata for lightweight "
+            "release-readiness checks. This command does not train or load "
+            "model weights."
+        ),
+    )
+    safety_check_parser.add_argument(
         "--json",
         action="store_true",
         help="Print machine-readable JSON output.",
@@ -703,11 +754,13 @@ def main(argv: list[str] | None = None) -> int:
             return _run_model_validate_artifact(args)
         if args.model_command == "predict-artifact":
             return _run_model_predict_artifact(args)
+        if args.model_command == "safety-check":
+            return _run_model_safety_check(args)
 
         print(
             "GPUBoost Model\nAvailable commands: evaluate-baselines, train-neural, "
             "list-artifacts, show-artifact, check-artifact, validate-artifact, "
-            "predict-artifact"
+            "predict-artifact, safety-check"
         )
         return 0
 
@@ -1035,6 +1088,21 @@ def _run_model_predict_artifact(args: argparse.Namespace) -> int:
     return 0 if payload.get("status") == "ok" else 1
 
 
+def _run_model_safety_check(args: argparse.Namespace) -> int:
+    result = verify_model_workflow_safety()
+    if args.json:
+        print(
+            json.dumps(
+                build_model_safety_check_json_payload(result),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(render_model_safety_check_human(result))
+    return 1 if result.get("status") == "error" else 0
+
+
 def _run_history_list(args: argparse.Namespace) -> int:
     try:
         history = list_history_runs(db_path=args.db_path)
@@ -1281,6 +1349,16 @@ def build_model_check_artifact_json_payload(
     return {
         "schema_version": "training.model_artifact.check.v1",
         "command": "model check-artifact",
+        "result": result,
+    }
+
+
+def build_model_safety_check_json_payload(
+    result: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "schema_version": MODEL_WORKFLOW_SAFETY_SCHEMA_VERSION,
+        "command": "model safety-check",
         "result": result,
     }
 
@@ -1594,6 +1672,29 @@ def render_model_check_artifact_human(result: dict[str, object]) -> str:
                     f"{check.get('name')}: {check.get('status')} "
                     f"({check.get('message')})"
                 )
+    return "\n".join(lines)
+
+
+def render_model_safety_check_human(result: dict[str, object]) -> str:
+    lines = [
+        "GPUBoost Model Workflow Safety Check",
+        f"Status: {result.get('status') or 'unknown'}",
+        "",
+        "Checks:",
+    ]
+    for key in (
+        "generated_dir_ignored",
+        "artifact_extensions_ignored",
+        "raw_data_ignored",
+        "model_patch_application_allowed_false_documented",
+        "provider_patch_application_allowed_false",
+        "no_default_artifact_path_required",
+    ):
+        lines.append(f"- {key}: {_format_yes_no(result.get(key) is True)}")
+    warnings = result.get("warnings")
+    if isinstance(warnings, list) and warnings:
+        lines.extend(["", "Warnings:"])
+        lines.extend(f"- {warning}" for warning in warnings)
     return "\n".join(lines)
 
 
