@@ -105,6 +105,23 @@ evidence-based optimization tool for CUDA and PyTorch development.
 - Phase 12 training must use the safe training feature extraction layer, not
   raw `DatasetRow.to_dict()` output
 
+### Phase 14: Real-World Validation Demos
+
+- Adds realistic lightweight PyTorch demo workloads for CNN, toy transformer,
+  and DataLoader training scenarios
+- Adds lightweight demo discovery commands:
+  `python -m gpuboost demo --help`,
+  `python -m gpuboost demo real-world-info --json`, and
+  `python -m gpuboost demo real-world-pairs --json`
+- Runs baseline/optimized benchmark pairs into ignored
+  `data/gpuboost/generated/demo_real_world/` outputs
+- Compares before/after JSON and prepares collect-outcomes-compatible pairs
+- Generates demo validation reports with safety notes, limitations, and
+  optional advisory model predictions
+- Uses synthetic data only, so demo results should not be overclaimed
+- Keeps model behavior advisory-only, with no automatic patch application and
+  deterministic GPUBoost checks remain authoritative
+
 ## Install For Development
 
 ```bash
@@ -123,6 +140,7 @@ On Windows, activate the virtual environment first if desired:
 - [Model Training](docs/model-training.md)
 - [Agent CLI](docs/agent-cli.md)
 - [Demo Workflow](docs/demo-workflow.md)
+- [Real-World Validation](docs/real-world-validation.md)
 - [Release Checklist](docs/release-checklist.md)
 - [Phase 13 Testing](docs/phase-13-testing.md)
 - [Phase 13 Release Readiness](docs/phase-13-release-readiness.md)
@@ -362,6 +380,9 @@ python -m gpuboost model check-artifact <manifest_path> --min-test-macro-f1 0.75
 python -m gpuboost model predict-artifact <manifest_path> --features-json '{...}' --json
 python -m gpuboost agent optimize <script> --model-artifact <manifest_path> --json
 python -m gpuboost model safety-check --json
+python -m gpuboost demo real-world-info
+python -m gpuboost demo real-world-info --json
+python -m gpuboost demo real-world-pairs --json
 ```
 
 Planned commands, not yet implemented:

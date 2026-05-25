@@ -20,6 +20,12 @@ from gpuboost.dataset.outcome_collection import (
     OUTCOME_COLLECTION_SCHEMA_VERSION,
     collect_outcomes_from_pairs_file,
 )
+from gpuboost.demo.real_world import (
+    DEFAULT_OUTPUT_ROOT as REAL_WORLD_DEMO_OUTPUT_ROOT,
+    DEFAULT_PAIRS_PATH as REAL_WORLD_DEMO_PAIRS_PATH,
+    build_real_world_demo_pairs,
+    write_real_world_pairs_file,
+)
 from gpuboost.history.compare import compare_history_runs
 from gpuboost.history.store import list_history_runs, load_history_run
 from gpuboost.inspector.profile import collect_profile
@@ -534,6 +540,64 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print machine-readable JSON output.",
     )
 
+    demo_parser = subparsers.add_parser(
+        "demo",
+        help="Discover safe GPUBoost demo workflows.",
+        description=(
+            "Discover Phase 14 demo workflows without running benchmarks, "
+            "training models, calling network services, or applying patches."
+        ),
+        epilog=(
+            "Demo commands are informational by default. Model output remains "
+            "advisory-only, generated artifacts are ignored, and there is no "
+            "automatic patch application."
+        ),
+    )
+    demo_subparsers = demo_parser.add_subparsers(dest="demo_command")
+
+    real_world_parser = demo_subparsers.add_parser(
+        "real-world",
+        help="Show the real-world validation demo workflow.",
+        description=(
+            "Show available Phase 14 real-world demo workloads and commands. "
+            "This does not execute benchmarks or train models."
+        ),
+    )
+    real_world_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    real_world_info_parser = demo_subparsers.add_parser(
+        "real-world-info",
+        help="Print real-world demo workflow information.",
+    )
+    real_world_info_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    real_world_pairs_parser = demo_subparsers.add_parser(
+        "real-world-pairs",
+        help="Print real-world demo pair specs without running benchmarks.",
+        description=(
+            "Print collect-outcomes-compatible real-world demo pair metadata. "
+            "Use --write to write the pairs file; no benchmarks are executed."
+        ),
+    )
+    real_world_pairs_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+    real_world_pairs_parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Write data/gpuboost/generated/demo_real_world/pairs.json.",
+    )
+
     return parser
 
 
@@ -797,6 +861,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
+    if args.command == "demo":
+        if args.demo_command in {"real-world", "real-world-info"}:
+            return _run_demo_real_world_info(args)
+        if args.demo_command == "real-world-pairs":
+            return _run_demo_real_world_pairs(args)
+
+        print(
+            "GPUBoost Demo\n"
+            "Available commands: real-world, real-world-info, real-world-pairs\n"
+            "Demo commands are lightweight and do not run benchmarks or train models."
+        )
+        return 0
+
     parser.print_help()
     return 0
 
@@ -842,6 +919,31 @@ def _run_dataset_collect_outcomes(args: argparse.Namespace) -> int:
         )
     else:
         print(render_dataset_collect_outcomes_human(summary))
+    return 0
+
+
+def _run_demo_real_world_info(args: argparse.Namespace) -> int:
+    payload = build_demo_real_world_info_payload()
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(render_demo_real_world_info_human(payload))
+    return 0
+
+
+def _run_demo_real_world_pairs(args: argparse.Namespace) -> int:
+    pairs = build_real_world_demo_pairs()
+    output_path = None
+    if args.write:
+        output_path = write_real_world_pairs_file(pairs)
+
+    payload = build_demo_real_world_info_payload()
+    payload["pairs"] = pairs
+    payload["pairs_file_written"] = output_path
+    if args.json:
+        print(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        print(render_demo_real_world_pairs_human(payload))
     return 0
 
 
@@ -1311,6 +1413,67 @@ def build_dataset_collect_outcomes_json_payload(
     }
 
 
+def build_demo_real_world_info_payload() -> dict[str, object]:
+    """Build a lightweight Phase 14 real-world demo discovery payload."""
+
+    pairs = build_real_world_demo_pairs()
+    workloads = [
+        {
+            "row_id": pair["row_id"],
+            "workload_name": pair["workload_name"],
+            "baseline_script": pair["baseline_script"],
+            "optimized_script": pair["optimized_script"],
+            "workload_family": pair["metadata"]["workload_family"],
+        }
+        for pair in pairs
+    ]
+    first_pair = pairs[0]
+    return {
+        "schema_version": "demo.real_world_cli.v1",
+        "available_workloads": workloads,
+        "commands": {
+            "run_benchmarks": (
+                "powershell -ExecutionPolicy Bypass -File "
+                ".\\scripts\\run_real_world_demo_benchmarks.ps1"
+            ),
+            "collect_outcomes": (
+                "python -m gpuboost dataset collect-outcomes "
+                f"{REAL_WORLD_DEMO_PAIRS_PATH} --output-dir "
+                f"{REAL_WORLD_DEMO_OUTPUT_ROOT}/outcomes"
+            ),
+            "compare_example": (
+                "python -m gpuboost compare "
+                f"{first_pair['baseline_json_path']} "
+                f"{first_pair['optimized_json_path']}"
+            ),
+            "model_advisory_example": (
+                "python -m gpuboost agent optimize <script> "
+                "--model-artifact "
+                "data/gpuboost/generated/model_training/artifacts/<id>/manifest.json "
+                "--json"
+            ),
+        },
+        "output_paths": {
+            "output_root": REAL_WORLD_DEMO_OUTPUT_ROOT,
+            "pairs_json": REAL_WORLD_DEMO_PAIRS_PATH,
+            "outcomes": f"{REAL_WORLD_DEMO_OUTPUT_ROOT}/outcomes",
+            "demo_report_json": (
+                f"{REAL_WORLD_DEMO_OUTPUT_ROOT}/demo_validation_report.json"
+            ),
+            "demo_report_md": f"{REAL_WORLD_DEMO_OUTPUT_ROOT}/demo_validation_report.md",
+        },
+        "safety_notes": {
+            "model_behavior": "advisory-only",
+            "generated_artifacts": "ignored",
+            "automatic_patch_application": False,
+            "patch_application_allowed": False,
+            "runs_heavy_commands": False,
+            "trains_models": False,
+            "calls_network": False,
+        },
+    }
+
+
 def build_dataset_collect_outcomes_error_payload(error: str) -> dict[str, object]:
     return {
         "schema_version": OUTCOME_COLLECTION_SCHEMA_VERSION,
@@ -1484,6 +1647,69 @@ def render_dataset_collect_outcomes_error_human(error: str) -> str:
             f"- {error}",
         ]
     )
+
+
+def render_demo_real_world_info_human(payload: dict[str, object]) -> str:
+    workloads = payload["available_workloads"]
+    commands = payload["commands"]
+    output_paths = payload["output_paths"]
+    lines = [
+        "GPUBoost Real-World Demo",
+        "",
+        "Available workloads:",
+    ]
+    if isinstance(workloads, list):
+        for workload in workloads:
+            if isinstance(workload, dict):
+                lines.append(
+                    "- "
+                    f"{workload['row_id']}: {workload['workload_family']} "
+                    f"({workload['baseline_script']} -> "
+                    f"{workload['optimized_script']})"
+                )
+
+    lines.extend(["", "Commands:"])
+    if isinstance(commands, dict):
+        for label in (
+            "run_benchmarks",
+            "compare_example",
+            "collect_outcomes",
+            "model_advisory_example",
+        ):
+            lines.append(f"- {label}: {commands[label]}")
+
+    lines.extend(["", "Output paths:"])
+    if isinstance(output_paths, dict):
+        for label, path in output_paths.items():
+            lines.append(f"- {label}: {path}")
+
+    lines.extend(
+        [
+            "",
+            "Safety:",
+            "- Demo CLI commands are lightweight and do not run benchmarks by default.",
+            "- Model behavior is advisory-only.",
+            "- Generated artifacts are ignored under data/gpuboost/generated/.",
+            "- No automatic patch application; patch_application_allowed=false.",
+            "- Deterministic GPUBoost checks remain authoritative.",
+            "- No hidden training and no network calls.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_demo_real_world_pairs_human(payload: dict[str, object]) -> str:
+    output = render_demo_real_world_info_human(payload)
+    pairs_file_written = payload.get("pairs_file_written")
+    if pairs_file_written:
+        output = f"{output}\n\nPairs file written: {pairs_file_written}"
+    else:
+        output = (
+            f"{output}\n\n"
+            "Pairs file not written. Re-run with --write to create "
+            f"{REAL_WORLD_DEMO_PAIRS_PATH}."
+        )
+    return output
 
 
 def render_model_evaluate_baselines_human(result: dict[str, object]) -> str:

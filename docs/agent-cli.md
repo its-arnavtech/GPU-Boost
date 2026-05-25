@@ -243,6 +243,23 @@ JSON preserves action statuses and errors in `result.plan.actions`.
 - Quick benchmark only for now
 - Full benchmark agent mode is not implemented yet
 
+## Phase 14 Real-World Validation Notes
+
+Phase 14 real-world validation uses realistic PyTorch demo scripts and saved
+before/after benchmark JSON to show how GPUBoost behaves outside controlled
+training rows. The agent can include artifact/advisory model output when a
+local model artifact is supplied, but the model remains advisory-only.
+
+There is no automatic patch application. The agent must keep
+`patch_application_allowed=false`, and deterministic GPUBoost checks remain authoritative:
+static analysis, trial workspace validation, syntax checks, explicit tests, and
+measured benchmark comparisons decide whether a suggested change is credible.
+
+Generated real-world demo artifacts are ignored under
+`data/gpuboost/generated/demo_real_world/`. The demos use synthetic data and
+support CPU fallback, but CPU fallback does not prove CUDA-specific
+optimization behavior. Hardware variability can change benchmark verdicts.
+
 ## Phase 6 Completion Checklist
 
 - Agent CLI command available

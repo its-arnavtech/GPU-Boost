@@ -5,6 +5,25 @@ to be local-first, review-only, and safe to run without CUDA or network access.
 Commands that train use small local settings. Generated artifacts should stay
 under ignored `data/gpuboost/generated/` paths.
 
+Phase 14 adds a realistic validation path for demo workloads. It runs
+baseline/optimized PyTorch examples, compares before/after benchmark JSON,
+collects outcome rows, and can summarize the result in generated demo reports
+without committing generated artifacts.
+
+Discover the workflow from the CLI without running benchmarks or training:
+
+```bash
+python -m gpuboost demo --help
+python -m gpuboost demo real-world --help
+python -m gpuboost demo real-world-info
+python -m gpuboost demo real-world-info --json
+python -m gpuboost demo real-world-pairs --json
+```
+
+These commands list available workloads, scripts, output locations, comparison
+commands, outcome collection commands, and safety notes. They do not run heavy
+demos automatically, train models, call network services, or apply patches.
+
 ## 1. Run Agent Optimize
 
 ```bash
@@ -96,6 +115,61 @@ The model is advisory-only. Deterministic recommendations, patch planning,
 trial workspace validation, explicit tests, and benchmark evidence remain
 authoritative. GPUBoost still does not apply patches automatically.
 
+## 9. Run Real-World Demo Examples
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_real_world_demo_benchmarks.ps1
+```
+
+The Phase 14 runner executes realistic but lightweight baseline/optimized
+examples from `examples/real_world/`:
+
+- CNN image classification-style training.
+- Toy transformer text classification.
+- DataLoader training.
+
+Each script uses synthetic data only and supports CPU fallback. CUDA-specific
+improvements such as AMP, pinned memory, and non-blocking transfers are used
+only when CUDA is available.
+
+Expected generated output files live under the ignored directory:
+
+```text
+data/gpuboost/generated/demo_real_world/
+```
+
+The runner writes per-pair `baseline.json` and `optimized.json` benchmark
+payloads plus `pairs.json` for outcome collection. Generated artifacts are
+ignored and should not be committed.
+
+## 10. Compare And Collect Real-World Outcomes
+
+The runner prints before/after comparison commands such as:
+
+```bash
+python -m gpuboost compare data/gpuboost/generated/demo_real_world/cnn_real_world/baseline.json data/gpuboost/generated/demo_real_world/cnn_real_world/optimized.json
+```
+
+It also prints the outcome collection command:
+
+```bash
+python -m gpuboost dataset collect-outcomes data/gpuboost/generated/demo_real_world/pairs.json --output-dir data/gpuboost/generated/demo_real_world/outcomes
+```
+
+Outcome collection reads local benchmark JSON files only. It does not execute
+arbitrary commands, call external APIs, download data, or apply patches.
+
+## 11. Generate Demo Reports
+
+Phase 14 demo reports summarize comparison results, optional model advisory
+predictions, safety notes, and limitations. Reports are generated under ignored
+`data/gpuboost/generated/` paths and should not include raw source, raw diffs,
+stdout, stderr, model weights, or private absolute paths.
+
+The advisory-only model step can provide a local prediction summary, but
+`patch_application_allowed=false`, there is no automatic patch application, and
+deterministic GPUBoost checks remain authoritative.
+
 ## Demo Boundaries
 
 - No CUDA is required for the normal demo path; CUDA benchmarks may be skipped
@@ -105,3 +179,6 @@ authoritative. GPUBoost still does not apply patches automatically.
 - No scraping or downloading is performed.
 - No LLM fine-tuning is performed.
 - Generated artifacts remain ignored and should not be committed.
+- Synthetic data limits what the real-world demos prove.
+- Hardware variability can change before/after benchmark verdicts.
+- Model advisory predictions cannot override deterministic checks.

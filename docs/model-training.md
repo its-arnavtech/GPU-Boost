@@ -205,3 +205,22 @@ Agent JSON redacts raw source, raw diffs, stdout, and stderr by default. Trained
 artifact predictions report `patch_application_allowed=false`. Generated model
 artifacts remain under ignored `data/gpuboost/generated/` paths and must not be
 committed.
+
+## Phase 14 Real-World Validation Use
+
+Phase 14 can use saved local model artifacts as an advisory signal while
+validating realistic before/after demo workloads. The model may predict whether
+an optimization is likely to improve, regress, or remain neutral, but that
+prediction is advisory-only and must not be treated as the final outcome.
+
+Deterministic GPUBoost checks remain authoritative: measured before/after
+comparisons, trial workspace validation, syntax checks, explicit tests, and
+safety gates decide whether a change is accepted. There is no automatic patch
+application, and model reports must keep `patch_application_allowed=false`.
+
+Real-world demo reports and benchmark outputs belong under ignored
+`data/gpuboost/generated/` directories. They should not include raw source, raw
+diffs, stdout, stderr, model weights, or private absolute paths. The Phase 14
+examples use synthetic data, so they are useful for demo validation but do not
+prove production dataset performance. Hardware variability can change measured
+speedups and verdicts.
