@@ -6,9 +6,13 @@ The CLI exposes Phase 1 inspection and Phase 2 benchmark commands.
 from __future__ import annotations
 
 import argparse
+import importlib
+import importlib.util
 import json
+import sys
 from pathlib import Path
 
+from gpuboost import __version__
 from gpuboost.agent.report import AgentReport
 from gpuboost.agent.workflow import run_optimize_script_workflow
 from gpuboost.advisor.engine import generate_advisor_result
@@ -74,6 +78,9 @@ from gpuboost.schemas.recommendation import AdvisorResult
 from gpuboost.schemas.training import NeuralSearchResult, NeuralTrainingConfig
 from gpuboost.utils.formatting import format_benchmark_suite, format_profile
 
+SETUP_DOCTOR_SCHEMA_VERSION = "setup.doctor.v1"
+MIN_PYTHON_VERSION = (3, 9)
+
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the GPUBoost argument parser."""
@@ -82,7 +89,26 @@ def build_parser() -> argparse.ArgumentParser:
         prog="gpuboost",
         description="Inspect NVIDIA GPU and system information.",
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
     subparsers = parser.add_subparsers(dest="command")
+
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Run lightweight local setup checks.",
+        description=(
+            "Run lightweight local setup checks without requiring CUDA, "
+            "running benchmarks, training models, or calling network services."
+        ),
+    )
+    doctor_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
 
     info_parser = subparsers.add_parser(
         "info",
@@ -607,6 +633,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    if args.command == "doctor":
+        result = build_setup_doctor_report()
+        if args.json:
+            print(json.dumps(result, indent=2, sort_keys=True))
+        else:
+            print(render_setup_doctor_human(result))
+        return setup_doctor_status_to_exit_code(str(result["status"]))
+
     if args.command == "info":
         profile = collect_profile()
         if args.json:
@@ -876,6 +910,193 @@ def main(argv: list[str] | None = None) -> int:
 
     parser.print_help()
     return 0
+
+
+def build_setup_doctor_report() -> dict[str, object]:
+    """Return lightweight setup checks for local development."""
+
+    checks = [
+        _check_python_version(),
+        _check_import("gpuboost", required=True),
+        _check_import("psutil", required=True),
+        _check_import("rich", required=True),
+        _check_import("pynvml", required=True, label="nvidia-ml-py / pynvml"),
+        _check_import("pytest", required=False),
+        _check_import("ruff", required=False),
+        _check_torch_availability(),
+        _check_gitignore_safety(),
+    ]
+    failed = [check for check in checks if check["status"] == "failed"]
+    warnings = [check for check in checks if check["status"] == "warning"]
+    status = "error" if failed else "warning" if warnings else "ok"
+    return {
+        "schema_version": SETUP_DOCTOR_SCHEMA_VERSION,
+        "status": status,
+        "python_version": sys.version.split()[0],
+        "cwd": str(Path.cwd()),
+        "checks": checks,
+        "cuda_required": False,
+    }
+
+
+def render_setup_doctor_human(result: dict[str, object]) -> str:
+    """Render setup doctor checks for terminal output."""
+
+    lines = [
+        "GPUBoost Doctor",
+        f"Status: {result['status']}",
+        f"Python: {result['python_version']}",
+        "",
+        "Checks:",
+    ]
+    checks = result.get("checks")
+    if isinstance(checks, list):
+        for check in checks:
+            if not isinstance(check, dict):
+                continue
+            name = check.get("name", "unknown")
+            status = check.get("status", "unknown")
+            message = check.get("message", "")
+            lines.append(f"- {name}: {status} - {message}")
+    lines.extend(
+        [
+            "",
+            "CUDA: not required for setup verification.",
+            "Doctor does not run benchmarks, train models, call external APIs, "
+            "or write generated artifacts.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def setup_doctor_status_to_exit_code(status: str) -> int:
+    """Return the CLI exit code for setup doctor status."""
+
+    return 1 if status == "error" else 0
+
+
+def _check_python_version() -> dict[str, object]:
+    current = sys.version_info[:3]
+    minimum = ".".join(str(part) for part in MIN_PYTHON_VERSION)
+    current_text = ".".join(str(part) for part in current)
+    passed = current >= MIN_PYTHON_VERSION
+    return {
+        "name": "python_version",
+        "status": "passed" if passed else "failed",
+        "required": True,
+        "message": f"Python {current_text}; requires >= {minimum}.",
+    }
+
+
+def _check_import(
+    module_name: str,
+    *,
+    required: bool,
+    label: str | None = None,
+) -> dict[str, object]:
+    display = label or module_name
+    spec = importlib.util.find_spec(module_name)
+    if spec is None:
+        return {
+            "name": f"import:{display}",
+            "status": "failed" if required else "warning",
+            "required": required,
+            "message": f"{display} is not importable.",
+        }
+
+    try:
+        module = importlib.import_module(module_name)
+    except Exception as error:  # noqa: BLE001 - import diagnostics boundary
+        return {
+            "name": f"import:{display}",
+            "status": "failed" if required else "warning",
+            "required": required,
+            "message": f"{display} import failed: {_format_exception_message(error)}",
+        }
+
+    version = getattr(module, "__version__", None)
+    message = f"{display} is importable."
+    if isinstance(version, str) and version:
+        message = f"{message} version={version}."
+    return {
+        "name": f"import:{display}",
+        "status": "passed",
+        "required": required,
+        "message": message,
+    }
+
+
+def _check_torch_availability() -> dict[str, object]:
+    spec = importlib.util.find_spec("torch")
+    if spec is None:
+        return {
+            "name": "optional:torch",
+            "status": "warning",
+            "required": False,
+            "message": (
+                "PyTorch is not importable; CUDA benchmarks and model training "
+                "will be unavailable, but CUDA is not required for setup checks."
+            ),
+        }
+
+    try:
+        torch = importlib.import_module("torch")
+    except Exception as error:  # noqa: BLE001 - import diagnostics boundary
+        return {
+            "name": "optional:torch",
+            "status": "warning",
+            "required": False,
+            "message": f"PyTorch import failed: {_format_exception_message(error)}",
+        }
+
+    cuda_available: bool | str
+    try:
+        cuda_available = bool(torch.cuda.is_available())
+    except Exception as error:  # noqa: BLE001 - import diagnostics boundary
+        cuda_available = f"unknown: {_format_exception_message(error)}"
+
+    return {
+        "name": "optional:torch",
+        "status": "passed",
+        "required": False,
+        "message": (
+            f"PyTorch is importable. version={getattr(torch, '__version__', 'unknown')}; "
+            f"cuda_available={cuda_available}; CUDA is not required."
+        ),
+    }
+
+
+def _check_gitignore_safety() -> dict[str, object]:
+    gitignore = _read_optional_text(Path(".gitignore"))
+    expected_patterns = [
+        "data/gpuboost/generated/",
+        "data/gpuboost/raw/",
+        "*.pt",
+        "*.pth",
+        "*.safetensors",
+        "*.onnx",
+        "*.pkl",
+        "*.joblib",
+        "*.db",
+        "*.sqlite",
+        "*.sqlite3",
+    ]
+    missing = [pattern for pattern in expected_patterns if pattern not in gitignore]
+    return {
+        "name": "gitignore_generated_artifacts",
+        "status": "failed" if missing else "passed",
+        "required": True,
+        "message": "All generated data, model artifact, and local DB patterns present."
+        if not missing
+        else f"Missing .gitignore patterns: {', '.join(missing)}.",
+    }
+
+
+def _read_optional_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 
 def load_json_file(filepath: str) -> dict:

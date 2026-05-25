@@ -109,8 +109,8 @@ Do not use Phase 14 demo results to claim:
 - All user workloads will improve.
 - A CPU-only demo proves CUDA-specific optimizations.
 - Synthetic data represents real dataset performance.
-- Model advisory predictions are authoritative.
-- GPUBoost can safely apply patches automatically.
+- Model advisory predictions can replace deterministic checks.
+- Automatic patch application is available or safe for original files.
 
 GPUBoost has no automatic patch application. Reviewable diffs and model
 advisory output are not permission to modify original source files.
