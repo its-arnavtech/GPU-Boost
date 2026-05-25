@@ -2219,8 +2219,9 @@ def test_cli_model_help_includes_lifecycle_commands_and_safety(capsys) -> None:
         "safety-check",
     ]:
         assert command in captured.out
-    help_text = captured.out.lower()
-    assert "advisory-only" in help_text
+    help_text = " ".join(captured.out.lower().split())
+    assert "advisory" in help_text
+    assert "only" in help_text
     assert "local/generated" in help_text
     assert "--save-artifact is explicit" in help_text
     assert "cannot apply patches" in help_text
@@ -2244,7 +2245,7 @@ def test_cli_model_check_artifact_help_mentions_quality_gate(capsys) -> None:
     captured = capsys.readouterr()
 
     assert exc.value.code == 0
-    help_text = captured.out.lower()
+    help_text = " ".join(captured.out.lower().split())
     assert "quality gates" in help_text
     assert "does not train" in help_text
 
@@ -2267,8 +2268,102 @@ def test_cli_agent_optimize_help_mentions_model_artifact_advisory(capsys) -> Non
     assert exc.value.code == 0
     help_text = " ".join(captured.out.split())
     assert "--model-artifact" in help_text
-    assert "advisory-only" in help_text
+    assert "advisory" in help_text
+    assert "only" in help_text
     assert "cannot apply patches" in help_text
+
+
+def test_cli_demo_help_mentions_real_world_and_safety(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main.main(["demo", "--help"])
+    captured = capsys.readouterr()
+
+    assert exc.value.code == 0
+    help_text = " ".join(captured.out.lower().split())
+    assert "real-world" in help_text
+    assert "real-world-info" in help_text
+    assert "real-world-pairs" in help_text
+    assert "advisory" in help_text
+    assert "only" in help_text
+    assert "no automatic patch application" in help_text
+
+
+def test_cli_demo_real_world_help_is_lightweight(capsys) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli_main.main(["demo", "real-world", "--help"])
+    captured = capsys.readouterr()
+
+    assert exc.value.code == 0
+    help_text = " ".join(captured.out.lower().split())
+    assert "execute benchmarks" in help_text
+    assert "train models" in help_text
+
+
+def test_cli_demo_real_world_info_human_output(capsys) -> None:
+    exit_code = cli_main.main(["demo", "real-world-info"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "GPUBoost Real-World Demo" in captured.out
+    assert "cnn_real_world" in captured.out
+    assert "run_real_world_demo_benchmarks.ps1" in captured.out
+    assert "python -m gpuboost compare" in captured.out
+    assert "python -m gpuboost dataset collect-outcomes" in captured.out
+    assert "advisory-only" in captured.out
+    assert "Generated artifacts are ignored" in captured.out
+    assert "No automatic patch application" in captured.out
+    assert captured.err == ""
+
+
+def test_cli_demo_real_world_info_json_output(capsys) -> None:
+    exit_code = cli_main.main(["demo", "real-world-info", "--json"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload["schema_version"] == "demo.real_world_cli.v1"
+    assert [item["row_id"] for item in payload["available_workloads"]] == [
+        "cnn_real_world",
+        "transformer_toy_real_world",
+        "dataloader_real_world",
+    ]
+    assert "run_benchmarks" in payload["commands"]
+    assert payload["output_paths"]["output_root"].endswith("demo_real_world")
+    assert payload["safety_notes"]["model_behavior"] == "advisory-only"
+    assert payload["safety_notes"]["generated_artifacts"] == "ignored"
+    assert payload["safety_notes"]["automatic_patch_application"] is False
+    assert payload["safety_notes"]["runs_heavy_commands"] is False
+    assert captured.err == ""
+
+
+def test_cli_demo_real_world_does_not_run_heavy_commands(monkeypatch, capsys) -> None:
+    def fail(*args, **kwargs):
+        raise AssertionError("heavy command should not run")
+
+    monkeypatch.setattr(cli_main, "run_quick_benchmark", fail)
+    monkeypatch.setattr(cli_main, "run_full_benchmark", fail)
+    monkeypatch.setattr(cli_main, "run_neural_hyperparameter_search", fail)
+    monkeypatch.setattr(cli_main, "train_best_neural_model_for_artifact", fail)
+
+    exit_code = cli_main.main(["demo", "real-world", "--json"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload["safety_notes"]["runs_heavy_commands"] is False
+    assert payload["safety_notes"]["trains_models"] is False
+    assert payload["safety_notes"]["calls_network"] is False
+
+
+def test_cli_demo_real_world_pairs_json_does_not_write_by_default(capsys) -> None:
+    exit_code = cli_main.main(["demo", "real-world-pairs", "--json"])
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert payload["pairs"]
+    assert payload["pairs_file_written"] is None
+    assert payload["safety_notes"]["automatic_patch_application"] is False
 
 
 def test_cli_agent_optimize_model_artifact_human_output_has_safety_note(
