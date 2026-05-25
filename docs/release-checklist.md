@@ -1,7 +1,7 @@
 # Release Checklist
 
 Use this checklist before tagging or announcing a GPUBoost release after Phase
-12 and Phase 13 hardening.
+15 final polish.
 
 ## Required
 
@@ -13,9 +13,13 @@ Use this checklist before tagging or announcing a GPUBoost release after Phase
 - [ ] No raw data or generated data is tracked.
 - [ ] No generated model artifacts, checkpoints, or model weights are tracked.
 - [ ] No local databases, caches, or secrets are tracked.
-- [ ] Documentation is updated, including model training, agent CLI, demo
-  workflow, Phase 13 testing, and this release checklist.
+- [ ] Documentation is updated, including setup, quickstart, model training,
+  agent CLI, demo workflow, release notes, final project summary, and this
+  release checklist.
 - [ ] README links to the current workflow and release docs.
+- [ ] `python -m gpuboost --version` reports the expected package version.
+- [ ] `python -m gpuboost doctor --json` returns `ok` or understood optional
+  dependency/CUDA warnings.
 
 ## Optional Manual Smoke
 
@@ -33,7 +37,10 @@ Use this checklist before tagging or announcing a GPUBoost release after Phase
 - [ ] GPUBoost does not apply patches automatically.
 - [ ] No LLM fine-tuning is part of the release.
 - [ ] No external APIs, scraping, or downloads are required for normal tests.
+- [ ] CUDA is not required for normal tests.
 - [ ] Generated artifacts remain ignored under `data/gpuboost/generated/`.
+- [ ] Real-world demo docs state that synthetic demos and hardware-specific
+  results should not be overclaimed.
 
 ## Useful Git Checks
 
