@@ -51,6 +51,7 @@ def create_optimize_script_plan(goal: AgentGoal) -> AgentPlan:
                 create_agent_action(
                     ANALYZE_CODE,
                     inputs=script_inputs,
+                    depends_on=[INSPECT_SYSTEM],
                 ),
                 create_agent_action(
                     CREATE_PATCH_PLAN,

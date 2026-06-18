@@ -32,6 +32,10 @@ dependencies = [
   "rich",
 ]
 
+[project.urls]
+Repository = "https://github.com/its-arnavtech/GPU-Boost"
+Issues = "https://github.com/its-arnavtech/GPU-Boost/issues"
+
 [project.optional-dependencies]
 dev = [
   "pytest",
@@ -43,6 +47,36 @@ gpuboost = "gpuboost.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["gpuboost"]
+
+[tool.hatch.build]
+exclude = [
+  "/.venv",
+  "/.pytest_cache",
+  "/.ruff_cache",
+  "/build",
+  "/dist",
+  "/wheelhouse",
+  "/data/gpuboost/raw",
+  "/data/gpuboost/generated",
+  "/data/gpuboost/experiments/*/",
+  "/data/gpuboost/experiments/grid_pairs.json",
+  "/data/gpuboost/experiments/grid_runner_manifest.json",
+  "/checkpoints",
+  "/models",
+  "/weights",
+  "*.pt",
+  "*.pth",
+  "*.ckpt",
+  "*.pkl",
+  "*.joblib",
+  "*.safetensors",
+  "*.onnx",
+  "*.sqlite",
+  "*.sqlite3",
+  "*.db",
+  ".env",
+  ".env.*",
+]
 
 [tool.hatch.version]
 path = "gpuboost/__init__.py"

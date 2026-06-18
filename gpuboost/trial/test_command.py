@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shlex
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -46,15 +48,29 @@ def run_trial_test_command(
     command = test_command.strip() if test_command is not None else ""
 
     try:
-        # shell=True is used only for explicit user-provided command strings so
-        # normal cross-platform quoting and shell builtins work as callers expect.
+        argv = _parse_test_command(command)
+    except ValueError as exc:
+        return "failed", _finish_step(
+            status="failed",
+            message="Trial test command could not be parsed.",
+            started_at=started_at,
+            start_time=start_time,
+            error=str(exc),
+            warnings=[TEST_COMMAND_WARNING],
+        )
+
+    try:
+        # The command is tokenized with shlex and executed WITHOUT a shell
+        # (shell=False). This eliminates shell injection: metacharacters such as
+        # ``&&``, ``;``, ``|`` or ``$(...)`` are passed through as literal
+        # arguments instead of being interpreted by a shell, so a single test
+        # command can never chain or substitute additional commands.
         completed = subprocess.run(
-            command,
+            argv,
             cwd=str(workspace_path),
             capture_output=True,
             text=True,
             timeout=timeout_sec,
-            shell=True,  # nosec B602
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -107,6 +123,32 @@ def should_run_test_command(test_command: str | None) -> bool:
     """Return whether a test command was explicitly provided."""
 
     return bool(test_command and test_command.strip())
+
+
+def _parse_test_command(command: str) -> list[str]:
+    """Tokenize a user test command into argv for shell-free execution.
+
+    The command is split with :func:`shlex.split` so it can be run with
+    ``shell=False``. This is the security boundary that prevents shell
+    injection: any shell metacharacters become ordinary literal arguments.
+    """
+
+    try:
+        argv = shlex.split(command, posix=True)
+    except ValueError as exc:
+        raise ValueError(f"Could not parse test command: {exc}") from exc
+
+    if not argv:
+        raise ValueError("Test command did not contain an executable to run.")
+
+    # Resolve the executable against PATH/PATHEXT so plain names like "pytest"
+    # work cross-platform without relying on a shell. If it cannot be resolved
+    # the original token is kept and subprocess will raise a clean OSError.
+    resolved = shutil.which(argv[0])
+    if resolved is not None:
+        argv[0] = resolved
+
+    return argv
 
 
 def _test_command_safety_error(workspace: TrialWorkspace) -> str | None:
