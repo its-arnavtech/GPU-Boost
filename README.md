@@ -176,6 +176,18 @@ The trained model remains advisory only. It cannot apply patches, edit files,
 override deterministic checks, override trials, replace tests, or replace
 benchmark evidence. Deterministic GPUBoost checks remain authoritative.
 
+> **What the model actually predicts.** The local model is trained on *structured
+> metadata about GPUBoost's own analysis* (such as finding counts, recommendation
+> counts, and patch-suggestion counts) together with labels derived from
+> comparing two benchmark JSON files. It does **not** read your code's runtime
+> behavior and it cannot causally predict whether applying a given patch will
+> speed up your real workload. In practice its signal reflects *whether GPUBoost
+> found optimization opportunities*, not the measured GPU impact of acting on
+> them. Treat the prediction as a coarse triage hint only, and rely on the
+> trial workspace and before/after benchmarks for any real performance claim.
+> The current model is also trained on a small, partly synthetic dataset, so it
+> should not be expected to generalize to arbitrary user scripts.
+
 Model training uses safe feature extraction and must not train on raw source,
 raw diffs, stdout, stderr, target-derived verdicts, or comparison labels.
 Artifacts are saved only when explicitly requested.
@@ -210,7 +222,9 @@ and [Phase 14 Validation Summary](docs/phase-14-validation-summary.md).
 - Reviewable diffs are generated before any trial modification.
 - Trial mode modifies only temporary copies, never the original source file.
 - Static analysis parses user code without importing or executing it.
-- Test commands are opt-in and may execute arbitrary user-provided code.
+- Test commands are opt-in and run the provided program directly (no shell), so
+  shell metacharacters cannot chain or inject additional commands; the named
+  program itself still runs and can execute code.
 - Deterministic checks authoritative: deterministic GPUBoost checks remain
   authoritative alongside measured benchmark evidence.
 - Model predictions are advisory only.
@@ -234,6 +248,12 @@ and [Phase 14 Validation Summary](docs/phase-14-validation-summary.md).
 - CPU-only machines skip CUDA benchmark work instead of failing hard.
 - Local model artifacts are experimental advisory aids, not a production
   optimizer.
+- The model predicts from GPUBoost's own analysis metadata (finding/recommendation
+  counts), not from your code's runtime behavior; it does not causally predict the
+  real GPU speedup of a patch and reflects whether opportunities were found, not
+  their measured impact.
+- The model is trained on a small, partly synthetic dataset and is not expected
+  to generalize to arbitrary user scripts.
 - GPUBoost does not include a bundled/default trained production model.
 - Before/after validation currently compares saved benchmark JSON files; the
   agent does not run arbitrary before/after benchmark commands automatically.

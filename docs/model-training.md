@@ -8,6 +8,23 @@ LLM fine-tuning, and does not call external LLM APIs, download datasets, scrape
 websites, train a large production model, guarantee optimization success, or
 make model predictions authoritative.
 
+## What the model can and cannot predict
+
+The model is trained on **structured metadata about GPUBoost's own analysis**
+(for example finding counts, recommendation counts, and patch-suggestion counts)
+with labels derived from comparing two benchmark JSON files. It does not observe
+the runtime behavior of the target code, and the features available at agent
+inference time describe *what GPUBoost detected*, not *what a patch will do to
+real GPU throughput*.
+
+As a result, the prediction is best understood as a coarse triage signal that
+correlates with whether GPUBoost found optimization opportunities, not as a
+causal estimate of measured speedup. It must never be used as evidence that a
+change improves performance: the trial workspace, before/after benchmarks, and
+deterministic checks remain the only authoritative sources of that evidence. The
+current dataset is also small and partly synthetic, so the model should not be
+expected to generalize to arbitrary user scripts.
+
 The training path must load `DatasetRow` records and convert them through the
 safe training feature extraction layer in `gpuboost.dataset.training_features`.
 Do not train directly on `DatasetRow.to_dict()`: that raw schema includes

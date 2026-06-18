@@ -77,7 +77,7 @@ def test_dependencies_are_correct() -> None:
     assert dependencies[INSPECT_SYSTEM] == []
     assert dependencies[RUN_QUICK_BENCHMARK] == [INSPECT_SYSTEM]
     assert dependencies[GENERATE_RECOMMENDATIONS] == [RUN_QUICK_BENCHMARK]
-    assert dependencies[ANALYZE_CODE] == []
+    assert dependencies[ANALYZE_CODE] == [INSPECT_SYSTEM]
     assert dependencies[CREATE_PATCH_PLAN] == [ANALYZE_CODE]
     assert dependencies[GENERATE_DIFF] == [CREATE_PATCH_PLAN]
 

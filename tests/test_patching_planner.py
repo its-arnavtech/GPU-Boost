@@ -129,7 +129,7 @@ def test_combines_num_workers_zero_and_missing_pin_memory_into_one_edit() -> Non
     assert "input pipeline stalls" in suggestion.rationale
     assert "CPU-to-GPU transfers" in suggestion.rationale
     assert len(suggestion.edits) == 1
-    assert suggestion.warnings == []
+    assert any("num_workers" in warning for warning in suggestion.warnings)
     assert edit.replacement_text == (
         "loader = DataLoader("
         "dataset, batch_size=32, num_workers=4, pin_memory=True)\n"
@@ -339,6 +339,37 @@ def test_helpers_cover_line_replace_kwarg_and_import_block() -> None:
         "pin_memory=True",
     ) == "loader = DataLoader(dataset, pin_memory=True)\n"
     assert find_import_block(source) == (1, 1, "import torch\n")
+
+
+def test_num_workers_zero_suggestion_includes_windows_warning() -> None:
+    source = "loader = DataLoader(dataset, batch_size=32, num_workers=0)\n"
+    analysis = _analysis([_finding("dataloader_num_workers_zero", line=1)])
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    suggestion = plan.suggestions[0]
+    assert any("__main__" in warning for warning in suggestion.warnings)
+    assert any("num_workers" in warning for warning in suggestion.warnings)
+
+
+def test_missing_num_workers_suggestion_includes_windows_warning() -> None:
+    source = "loader = DataLoader(dataset, batch_size=32, pin_memory=True)\n"
+    analysis = _analysis([_finding("dataloader_missing_num_workers", line=1)])
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    suggestion = plan.suggestions[0]
+    assert any("__main__" in warning for warning in suggestion.warnings)
+
+
+def test_pin_memory_only_suggestion_has_no_num_workers_warning() -> None:
+    source = "loader = DataLoader(dataset, pin_memory=False)\n"
+    analysis = _analysis([_finding("dataloader_pin_memory_false", line=1)])
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    suggestion = plan.suggestions[0]
+    assert suggestion.warnings == []
 
 
 def _analysis(findings: list[CodeFinding]) -> CodeAnalysisResult:

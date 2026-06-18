@@ -14,6 +14,12 @@ from gpuboost.schemas.patch_plan import (
 _NO_SAFE_SUGGESTIONS_WARNING = (
     "No safe automatic patch suggestions were generated."
 )
+_NUM_WORKERS_WARNING = (
+    "On Windows, DataLoader num_workers > 0 requires the training entry point to "
+    'be guarded by `if __name__ == "__main__":`, otherwise the script may hang or '
+    "error. The optimal worker count is system-dependent; benchmark before "
+    "adopting num_workers=4."
+)
 _CUDNN_BENCHMARK_LINE = "torch.backends.cudnn.benchmark = True"
 _DATALOADER_PATCH_FINDING_IDS = {
     "dataloader_missing_num_workers",
@@ -175,6 +181,7 @@ def _create_suggestion_for_finding(
             edit,
             "Set DataLoader num_workers to 4",
             f"patch_dataloader_num_workers_zero_line_{finding.line}",
+            warnings=[_NUM_WORKERS_WARNING],
         )
 
     if finding.id == "dataloader_pin_memory_false":
@@ -220,6 +227,7 @@ def _create_suggestion_for_finding(
             edit,
             "Add DataLoader num_workers=4",
             f"patch_dataloader_missing_num_workers_line_{finding.line}",
+            warnings=[_NUM_WORKERS_WARNING],
         )
 
     if finding.id == "cudnn_benchmark_missing":
@@ -333,7 +341,7 @@ def _create_combined_dataloader_suggestion(
             "workloads."
         ),
         edits=[edit],
-        warnings=[],
+        warnings=[_NUM_WORKERS_WARNING],
     )
 
 
@@ -455,6 +463,7 @@ def _line_replacement_suggestion(
     edit: PatchEdit | None,
     title: str,
     suggestion_id: str,
+    warnings: list[str] | None = None,
 ) -> PatchSuggestion | None:
     if edit is None:
         return None
@@ -473,7 +482,7 @@ def _line_replacement_suggestion(
         summary=finding.summary,
         rationale=finding.rationale,
         edits=[edit],
-        warnings=[],
+        warnings=list(warnings or []),
     )
 
 

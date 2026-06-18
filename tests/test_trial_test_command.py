@@ -171,6 +171,32 @@ def test_warning_is_included_when_command_runs(tmp_path: Path) -> None:
     assert TEST_COMMAND_WARNING in step.warnings
 
 
+def test_shell_metacharacters_do_not_chain_a_second_command(tmp_path: Path) -> None:
+    # The injected `&& python -c "..."` must NOT execute as a separate command.
+    # Without a shell, the metacharacters become literal arguments to the first
+    # program, so the marker file is never written.
+    _original, workspace = _make_workspace(tmp_path)
+    marker = Path(workspace.workspace_path) / "INJECTED.txt"
+    injected = (
+        f'"{sys.executable}" -c "pass" && '
+        f"\"{sys.executable}\" -c \"open('INJECTED.txt','w').close()\""
+    )
+
+    run_trial_test_command(workspace, injected)
+
+    assert not marker.exists()
+
+
+def test_unparseable_command_returns_failed(tmp_path: Path) -> None:
+    _original, workspace = _make_workspace(tmp_path)
+
+    status, step = run_trial_test_command(workspace, 'python -c "unbalanced')
+
+    assert status == "failed"
+    assert step.status == "failed"
+    assert "parse" in str(step.message).lower() or "parse" in str(step.error).lower()
+
+
 def test_should_run_test_command_behavior() -> None:
     assert should_run_test_command(None) is False
     assert should_run_test_command("") is False
