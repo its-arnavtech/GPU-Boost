@@ -123,7 +123,9 @@ def analyze_dataloader_source(
     if tree is None:
         return result
 
-    result.findings = run_visitors(tree, filepath, [DataLoaderFindingVisitor])
+    result.findings = run_visitors(
+        tree, filepath, [DataLoaderFindingVisitor], warnings=result.warnings
+    )
     return result
 
 

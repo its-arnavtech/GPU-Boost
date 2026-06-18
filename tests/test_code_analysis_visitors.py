@@ -81,6 +81,22 @@ def test_run_visitors_continues_if_one_visitor_raises() -> None:
     assert [finding.id for finding in findings] == ["first"]
 
 
+def test_run_visitors_records_warning_when_a_visitor_raises() -> None:
+    tree = ast.parse("x = 1\n")
+    warnings: list[str] = []
+
+    findings = run_visitors(
+        tree,
+        filepath="train.py",
+        visitors=[RaisingDummyVisitor, FirstDummyVisitor],
+        warnings=warnings,
+    )
+
+    assert [finding.id for finding in findings] == ["first"]
+    assert len(warnings) == 1
+    assert "RaisingDummyVisitor" in warnings[0]
+
+
 class FirstDummyVisitor(BaseFindingVisitor):
     def visit_Module(self, node: ast.Module) -> None:  # noqa: N802
         self.add_finding(

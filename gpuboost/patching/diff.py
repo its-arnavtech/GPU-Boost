@@ -17,6 +17,11 @@ def apply_patch_edits_to_text(
     warnings: list[str] = []
     applied_ranges: list[tuple[int, int]] = []
 
+    # Edits are always applied bottom-up (highest start_line first) so that
+    # mutating lower lines never shifts the line numbers of edits not yet
+    # applied. Overlap detection compares every edit against previously applied
+    # edits in the original document's coordinate frame, so it is correct
+    # regardless of the order edits were supplied in.
     for edit in sorted(edits, key=lambda item: item.start_line, reverse=True):
         start_index = edit.start_line - 1
         end_index = edit.end_line

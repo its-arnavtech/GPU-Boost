@@ -126,5 +126,7 @@ def analyze_sync_calls_source(
     if tree is None:
         return result
 
-    result.findings = run_visitors(tree, filepath, [SyncCallFindingVisitor])
+    result.findings = run_visitors(
+        tree, filepath, [SyncCallFindingVisitor], warnings=result.warnings
+    )
     return result

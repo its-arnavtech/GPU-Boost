@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from gpuboost.patching.diff import generate_patch_plan_diff
+from gpuboost.patching.diff import (
+    apply_patch_edits_to_text,
+    generate_patch_plan_diff,
+)
 from gpuboost.patching.planner import (
     create_patch_plan_from_analysis,
     find_import_block,
@@ -73,14 +76,38 @@ def test_creates_patch_for_missing_num_workers_single_line_dataloader() -> None:
     )
 
 
-def test_does_not_patch_multiline_dataloader_missing_kwarg() -> None:
+def test_patches_multiline_dataloader_missing_kwarg_with_trailing_comma() -> None:
     source = (
         "loader = DataLoader(\n"
         "    dataset,\n"
         "    batch_size=32,\n"
         ")\n"
     )
-    analysis = _analysis([_finding("dataloader_missing_pin_memory", line=1)])
+    analysis = _analysis(
+        [_finding("dataloader_missing_pin_memory", line=1, end_line=4)]
+    )
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    suggestion = plan.suggestions[0]
+    edit = suggestion.edits[0]
+    assert edit.start_line == 4
+    assert edit.original_text == ")\n"
+    assert edit.replacement_text == "    pin_memory=True,\n)\n"
+
+
+def test_does_not_patch_multiline_dataloader_without_trailing_comma() -> None:
+    # No trailing comma after the last argument: inserting a new argument line
+    # would be syntactically invalid, so no patch is produced.
+    source = (
+        "loader = DataLoader(\n"
+        "    dataset,\n"
+        "    batch_size=32\n"
+        ")\n"
+    )
+    analysis = _analysis(
+        [_finding("dataloader_missing_pin_memory", line=1, end_line=4)]
+    )
 
     plan = create_patch_plan_from_analysis(source, analysis)
 
@@ -88,6 +115,68 @@ def test_does_not_patch_multiline_dataloader_missing_kwarg() -> None:
     assert plan.warnings == [
         "No safe automatic patch suggestions were generated."
     ]
+
+
+def test_patches_multiline_dataloader_missing_num_workers() -> None:
+    source = (
+        "loader = DataLoader(\n"
+        "    dataset,\n"
+        "    pin_memory=True,\n"
+        ")\n"
+    )
+    analysis = _analysis(
+        [_finding("dataloader_missing_num_workers", line=1, end_line=4)]
+    )
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    suggestion = plan.suggestions[0]
+    assert suggestion.edits[0].replacement_text == "    num_workers=4,\n)\n"
+    assert any("__main__" in warning for warning in suggestion.warnings)
+
+
+def test_combines_multiline_missing_num_workers_and_pin_memory() -> None:
+    source = (
+        "loader = DataLoader(\n"
+        "    dataset,\n"
+        "    batch_size=32,\n"
+        ")\n"
+    )
+    analysis = _analysis(
+        [
+            _finding("dataloader_missing_num_workers", line=1, end_line=4),
+            _finding("dataloader_missing_pin_memory", line=1, end_line=4),
+        ]
+    )
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+
+    assert len(plan.suggestions) == 1
+    suggestion = plan.suggestions[0]
+    assert suggestion.id == "patch_dataloader_combined_line_1"
+    assert suggestion.edits[0].replacement_text == (
+        "    num_workers=4,\n    pin_memory=True,\n)\n"
+    )
+
+
+def test_multiline_dataloader_patch_end_to_end_from_source() -> None:
+    from gpuboost.code_analysis.runner import analyze_python_source
+
+    source = (
+        "from torch.utils.data import DataLoader\n"
+        "loader = DataLoader(\n"
+        "    dataset,\n"
+        "    batch_size=32,\n"
+        ")\n"
+    )
+    analysis = analyze_python_source(source, filepath="train.py")
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+    diff, warnings = generate_patch_plan_diff(source, plan)
+
+    assert plan.suggestions
+    assert "+    num_workers=4," in diff
+    assert "+    pin_memory=True," in diff
 
 
 def test_combines_num_workers_zero_and_missing_pin_memory_into_one_edit() -> None:
@@ -256,6 +345,51 @@ def test_creates_cudnn_benchmark_insertion_after_imports() -> None:
     assert "torch.backends.cudnn.benchmark = True" in edit.replacement_text
 
 
+def test_find_import_block_skips_leading_docstring() -> None:
+    source = '"""Module docstring."""\nimport torch\nimport os\n\nx = 1\n'
+
+    assert find_import_block(source) == (2, 3, "import torch\nimport os\n")
+
+
+def test_cudnn_insertion_after_imports_when_module_has_docstring() -> None:
+    source = (
+        '"""Training script."""\n'
+        "import torch\n"
+        "from torch.utils.data import DataLoader\n"
+        "\n"
+        "loader = DataLoader(dataset)\n"
+    )
+    analysis = _analysis([_finding("cudnn_benchmark_missing", line=None)])
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+    edit = plan.suggestions[0].edits[0]
+
+    assert edit.start_line == 2
+    assert edit.end_line == 3
+    assert edit.original_text == (
+        "import torch\nfrom torch.utils.data import DataLoader\n"
+    )
+    assert "torch.backends.cudnn.benchmark = True" in edit.replacement_text
+
+    modified, _warnings = apply_patch_edits_to_text(source, [edit])
+    # The docstring must remain the first line (it stays the module docstring).
+    assert modified.splitlines()[0] == '"""Training script."""'
+
+
+def test_cudnn_insertion_after_docstring_when_no_imports() -> None:
+    source = '"""Training script."""\nx = 1\nloader = DataLoader(dataset)\n'
+    analysis = _analysis([_finding("cudnn_benchmark_missing", line=None)])
+
+    plan = create_patch_plan_from_analysis(source, analysis)
+    edit = plan.suggestions[0].edits[0]
+
+    assert edit.start_line == 2
+    assert edit.replacement_text.startswith("torch.backends.cudnn.benchmark = True")
+
+    modified, _warnings = apply_patch_edits_to_text(source, [edit])
+    assert modified.splitlines()[0] == '"""Training script."""'
+
+
 def test_does_not_create_cudnn_patch_if_already_present() -> None:
     source = "torch.backends.cudnn.benchmark = True\n"
     analysis = _analysis([_finding("cudnn_benchmark_missing", line=None)])
@@ -386,6 +520,7 @@ def _finding(
     line: int | None,
     severity: str = "warning",
     confidence: str = "medium",
+    end_line: int | None = None,
 ) -> CodeFinding:
     return CodeFinding(
         id=finding_id,
@@ -396,7 +531,7 @@ def _finding(
         filepath="train.py",
         line=line,
         column=0 if line is not None else None,
-        end_line=line,
+        end_line=end_line if end_line is not None else line,
         end_column=None,
         summary="Finding summary.",
         rationale="Finding rationale.",

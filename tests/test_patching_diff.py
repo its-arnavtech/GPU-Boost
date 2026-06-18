@@ -108,6 +108,21 @@ def test_overlapping_edits_are_skipped_with_warning() -> None:
     ]
 
 
+def test_non_overlapping_edits_apply_regardless_of_input_order() -> None:
+    # Supplied top-to-bottom; the function must sort and apply bottom-up so the
+    # earlier edit's replacement does not shift the later edit's line numbers.
+    source = "one\ntwo\nthree\nfour\n"
+    edits = [
+        _edit(1, 1, "one\n", "ONE\n", "replace first"),
+        _edit(4, 4, "four\n", "FOUR\n", "replace last"),
+    ]
+
+    modified, warnings = apply_patch_edits_to_text(source, edits)
+
+    assert modified == "ONE\ntwo\nthree\nFOUR\n"
+    assert warnings == []
+
+
 def test_unified_diff_includes_fromfile_and_tofile_labels() -> None:
     diff = generate_unified_diff(
         "a = 1\n",
