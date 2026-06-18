@@ -177,7 +177,9 @@ def analyze_optimization_source(
     if tree is None:
         return result
 
-    result.findings = run_visitors(tree, filepath, [OptimizationFindingVisitor])
+    result.findings = run_visitors(
+        tree, filepath, [OptimizationFindingVisitor], warnings=result.warnings
+    )
     return result
 
 

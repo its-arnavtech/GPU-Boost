@@ -58,15 +58,26 @@ def run_visitors(
     tree: ast.AST,
     filepath: str,
     visitors: list[type[BaseFindingVisitor]],
+    warnings: list[str] | None = None,
 ) -> list[CodeFinding]:
-    """Run finding visitors over a parsed AST and collect their findings."""
+    """Run finding visitors over a parsed AST and collect their findings.
+
+    If a visitor raises (for example on an unexpected AST node shape), it is
+    skipped instead of aborting the whole analysis. When a ``warnings`` list is
+    provided, a message is appended for each failed visitor so callers can
+    surface partial-failure rather than silently returning fewer findings.
+    """
 
     findings: list[CodeFinding] = []
     for visitor_type in visitors:
         try:
             visitor = visitor_type(filepath)
             visitor.visit(tree)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001 - a visitor must not crash analysis
+            if warnings is not None:
+                warnings.append(
+                    f"Code analysis visitor failed: {visitor_type.__name__}: {exc}"
+                )
             continue
 
         findings.extend(visitor.findings)
