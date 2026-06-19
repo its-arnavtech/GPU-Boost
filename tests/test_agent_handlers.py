@@ -324,6 +324,9 @@ def test_run_trial_workspace_handler_stores_trial_result(monkeypatch) -> None:
     assert captured["original_file"] == "train.py"
     assert captured["patch_plan"] is state.metadata["_patch_plan"]
     assert captured["test_command"] == "python -c pass"
+    # The agent only trials scripts it already parsed as Python, so it must force
+    # the syntax check even for non-.py files (e.g. bad_train_sample.txt).
+    assert captured["force_python_syntax"] is True
     assert state.metadata["_trial_result"] is trial_result
     assert state.metadata["trial_result"] == trial_result.to_dict()
     assert state.warnings == ["trial warning"]

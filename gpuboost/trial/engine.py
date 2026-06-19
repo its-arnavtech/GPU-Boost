@@ -78,9 +78,8 @@ def run_patch_trial(
     finally:
         if workspace is not None:
             cleanup_step = cleanup_trial_workspace(workspace)
-            if cleanup_step.status == "failed":
-                cleanup_message = cleanup_step.error or cleanup_step.message
-                cleanup_step.warnings.append(cleanup_message)
+            # A failed cleanup already records its message in cleanup_step.error;
+            # don't also push it into warnings (that duplicated it in the output).
             steps.append(cleanup_step)
 
     warnings = _aggregate_warnings(steps)

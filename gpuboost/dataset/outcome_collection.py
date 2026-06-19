@@ -454,7 +454,9 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def _path_from_text(value: str) -> Path:
-    return Path(value.replace("\\", "/"))
+    # Path already handles both separators on Windows; replacing backslashes
+    # would corrupt UNC paths (\\server\share) and backslashes in POSIX names.
+    return Path(value)
 
 
 def _build_collection_markdown(summary: dict[str, Any]) -> str:

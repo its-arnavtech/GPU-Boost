@@ -382,3 +382,20 @@ def _fake_run_optimize_script_workflow_with_sensitive_artifacts(
         sections=[AgentReportSection(title="Results", items=["completed: 1"])],
     )
     return result, report
+
+
+def test_find_json_leaks_flags_populated_streams_by_default() -> None:
+    payload = {"stdout": "captured output", "stderr": ""}
+
+    leaks = find_json_leaks(payload)
+
+    reasons = [leak.reason for leak in leaks]
+    assert any("stdout" in reason for reason in reasons)
+
+
+def test_find_json_leaks_allows_streams_when_opted_in() -> None:
+    payload = {"stdout": "captured output", "stderr": "captured error"}
+
+    leaks = find_json_leaks(payload, allow_raw_streams=True)
+
+    assert leaks == []

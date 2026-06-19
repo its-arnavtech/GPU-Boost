@@ -628,3 +628,14 @@ def test_cli_collect_outcomes_exits_nonzero_when_all_pairs_fail(tmp_path) -> Non
     )
 
     assert exit_code == 1
+
+
+def test_path_from_text_does_not_rewrite_backslashes() -> None:
+    from pathlib import Path
+
+    from gpuboost.dataset.outcome_collection import _path_from_text
+
+    # Must not force-convert backslashes to forward slashes (would corrupt UNC
+    # paths and backslash-containing names). Path handles separators natively.
+    assert _path_from_text("a\b") == Path("a\b")
+    assert _path_from_text("dir/sub/file.json") == Path("dir/sub/file.json")
