@@ -16,13 +16,41 @@ from gpuboost.code_analysis.optimizations import (
 
 
 def test_emits_cudnn_benchmark_missing_when_absent() -> None:
-    result = analyze_optimization_source("x = 1\n")
+    result = analyze_optimization_source("model = torch.nn.Conv2d(3, 16, 3)\n")
 
     assert _finding_ids(result) == ["cudnn_benchmark_missing"]
     finding = result.findings[0]
     assert finding.line is None
     assert finding.column is None
     assert finding.code_snippet == "torch.backends.cudnn.benchmark = True"
+
+
+def test_does_not_emit_cudnn_finding_for_non_conv_non_loop_script() -> None:
+    # Data-preprocessing / non-ML scripts should not be told to enable cuDNN
+    # benchmark mode.
+    result = analyze_optimization_source("x = 1\ny = x + 2\n")
+
+    assert _finding_ids(result) == []
+
+
+def test_does_not_emit_cudnn_finding_when_determinism_enabled() -> None:
+    result = analyze_optimization_source(
+        "import torch\n"
+        "torch.backends.cudnn.deterministic = True\n"
+        "model = torch.nn.Conv2d(3, 16, 3)\n"
+    )
+
+    assert "cudnn_benchmark_missing" not in _finding_ids(result)
+
+
+def test_does_not_emit_cudnn_finding_when_benchmark_explicitly_disabled() -> None:
+    result = analyze_optimization_source(
+        "import torch\n"
+        "torch.backends.cudnn.benchmark = False\n"
+        "model = torch.nn.Conv2d(3, 16, 3)\n"
+    )
+
+    assert "cudnn_benchmark_missing" not in _finding_ids(result)
 
 
 def test_does_not_emit_cudnn_finding_when_benchmark_true_exists() -> None:

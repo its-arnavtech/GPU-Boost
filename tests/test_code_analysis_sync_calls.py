@@ -51,6 +51,31 @@ def test_detects_calls_inside_async_for_loop() -> None:
     assert _finding_ids(result) == ["sync_call_cpu_in_loop"]
 
 
+def test_sync_call_confidence_high_when_cuda_used() -> None:
+    result = analyze_sync_calls_source(
+        "for batch in loader:\n"
+        "    batch = batch.cuda()\n"
+        "    total += batch.sum().item()\n"
+    )
+
+    finding = next(
+        f for f in result.findings if f.id == "sync_call_item_in_loop"
+    )
+    assert finding.confidence == "high"
+
+
+def test_sync_call_confidence_low_when_no_cuda_context() -> None:
+    result = analyze_sync_calls_source(
+        "for row in rows:\n"
+        "    total += row.item()\n"
+    )
+
+    finding = result.findings[0]
+    assert finding.id == "sync_call_item_in_loop"
+    assert finding.confidence == "low"
+    assert "may be a false positive" in finding.rationale
+
+
 def test_does_not_detect_item_outside_loop() -> None:
     result = analyze_sync_calls_source("value = loss.item()\n")
 

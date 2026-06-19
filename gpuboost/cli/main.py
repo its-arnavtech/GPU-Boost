@@ -1140,6 +1140,12 @@ def _run_dataset_collect_outcomes(args: argparse.Namespace) -> int:
         )
     else:
         print(render_dataset_collect_outcomes_human(summary))
+
+    # Treat "no rows collected" (e.g., every pair failed, or an empty pairs
+    # file) as a failure so callers and CI don't mistake an empty dataset for
+    # success.
+    if summary.get("collected_row_count", 0) == 0:
+        return 1
     return 0
 
 
