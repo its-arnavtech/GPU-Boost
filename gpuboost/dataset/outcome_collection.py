@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -454,8 +455,12 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def _path_from_text(value: str) -> Path:
-    # Path already handles both separators on Windows; replacing backslashes
-    # would corrupt UNC paths (\\server\share) and backslashes in POSIX names.
+    # On POSIX, normalize Windows-style backslash separators to forward slashes
+    # so pairs files authored on Windows still resolve. On Windows, leave the
+    # value untouched so UNC paths (\\server\share) are not corrupted; Path
+    # already handles both separators there.
+    if os.name != "nt":
+        value = value.replace("\\", "/")
     return Path(value)
 
 

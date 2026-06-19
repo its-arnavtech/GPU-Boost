@@ -630,12 +630,20 @@ def test_cli_collect_outcomes_exits_nonzero_when_all_pairs_fail(tmp_path) -> Non
     assert exit_code == 1
 
 
-def test_path_from_text_does_not_rewrite_backslashes() -> None:
+def test_path_from_text_preserves_unc_on_windows_and_normalizes_on_posix() -> None:
+    import os
     from pathlib import Path
 
     from gpuboost.dataset.outcome_collection import _path_from_text
 
-    # Must not force-convert backslashes to forward slashes (would corrupt UNC
-    # paths and backslash-containing names). Path handles separators natively.
-    assert _path_from_text("a\b") == Path("a\b")
+    # Forward-slash paths are always preserved.
     assert _path_from_text("dir/sub/file.json") == Path("dir/sub/file.json")
+
+    if os.name == "nt":
+        # On Windows, backslashes (incl. UNC) must NOT be rewritten to "/".
+        assert _path_from_text(r"\\server\share\f.json") == Path(
+            r"\\server\share\f.json"
+        )
+    else:
+        # On POSIX, Windows-style backslash paths are normalized so they resolve.
+        assert _path_from_text("dir\\sub\\file.json") == Path("dir/sub/file.json")
