@@ -11,16 +11,32 @@ on:
     branches:
       - main
 
+# Cancel superseded runs on the same ref so CI does not pile up on rapid pushes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default token; jobs opt into more only if they need it.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Test on Python ${{ matrix.python-version }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
 
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12"]
+
+    env:
+      # Force UTF-8 everywhere so JSON output and file writes behave the same on
+      # Windows and Linux runners.
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
 
     steps:
       - name: Check out repository
@@ -43,7 +59,13 @@ jobs:
         run: ruff check .
 
       - name: Run tests
-        run: pytest
+        run: pytest -p no:cacheprovider
+
+      - name: Smoke test version
+        run: python -m gpuboost --version
+
+      - name: Smoke test doctor JSON
+        run: python -m gpuboost doctor --json
 
       - name: Smoke test CLI info JSON
         run: python -m gpuboost info --json
@@ -51,9 +73,13 @@ jobs:
       - name: Smoke test benchmark JSON
         run: python -m gpuboost benchmark --quick --json
 
+      - name: Smoke test model safety check JSON
+        run: python -m gpuboost model safety-check --json
+
   build:
     name: Build package
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
@@ -89,6 +115,7 @@ jobs:
   security:
     name: Security checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
