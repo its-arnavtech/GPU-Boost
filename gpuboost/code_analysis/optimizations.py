@@ -10,6 +10,23 @@ from gpuboost.schemas.code_analysis import CodeAnalysisResult
 
 
 _FORWARD_LIKE_NAMES = {"model", "net", "network", "module", "forward", "predict"}
+_CONV_CALL_NAMES = {
+    "Conv1d",
+    "Conv2d",
+    "Conv3d",
+    "ConvTranspose1d",
+    "ConvTranspose2d",
+    "ConvTranspose3d",
+    "LazyConv1d",
+    "LazyConv2d",
+    "LazyConv3d",
+    "conv1d",
+    "conv2d",
+    "conv3d",
+    "conv_transpose1d",
+    "conv_transpose2d",
+    "conv_transpose3d",
+}
 
 
 class OptimizationFindingVisitor(BaseFindingVisitor):
@@ -18,12 +35,20 @@ class OptimizationFindingVisitor(BaseFindingVisitor):
     def __init__(self, filepath: str) -> None:
         super().__init__(filepath)
         self.cudnn_benchmark_enabled = False
+        self.cudnn_locked = False
+        self.has_convolution = False
+        self.has_relevant_loop = False
         self.no_grad_context_depth = 0
         self.autocast_context_depth = 0
 
     def visit_Module(self, node: ast.Module) -> None:  # noqa: N802
         self.generic_visit(node)
-        if not self.cudnn_benchmark_enabled:
+        # cuDNN benchmark mode only helps convolution/training workloads with
+        # stable input shapes, and it is counter-productive when the user has
+        # opted into determinism or explicitly disabled it. Only suggest it when
+        # the script is plausibly a relevant workload and has not opted out.
+        cudnn_relevant = self.has_convolution or self.has_relevant_loop
+        if not self.cudnn_benchmark_enabled and not self.cudnn_locked and cudnn_relevant:
             self.add_finding(
                 id="cudnn_benchmark_missing",
                 title="cuDNN benchmark mode is not enabled",
@@ -50,12 +75,22 @@ class OptimizationFindingVisitor(BaseFindingVisitor):
     def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
         if is_cudnn_benchmark_true_assignment(node):
             self.cudnn_benchmark_enabled = True
+        if is_cudnn_locked_assignment(node):
+            self.cudnn_locked = True
 
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
         if is_cudnn_benchmark_true_assignment(node):
             self.cudnn_benchmark_enabled = True
+        if is_cudnn_locked_assignment(node):
+            self.cudnn_locked = True
+
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        if _call_last_name(node.func) in _CONV_CALL_NAMES:
+            self.has_convolution = True
 
         self.generic_visit(node)
 
@@ -99,8 +134,12 @@ class OptimizationFindingVisitor(BaseFindingVisitor):
     def _check_loop(self, node: ast.For | ast.While) -> None:
         contains_training_step = loop_contains_training_step(node)
         if contains_training_step:
+            self.has_relevant_loop = True
             self._check_training_loop(node)
             return
+
+        if loop_contains_forward_like_call(node):
+            self.has_relevant_loop = True
 
         if (
             loop_contains_forward_like_call(node)
@@ -222,6 +261,35 @@ def is_cudnn_benchmark_true_assignment(
         _attribute_name(target) == "torch.backends.cudnn.benchmark"
         for target in targets
     )
+
+
+def is_cudnn_locked_assignment(node: ast.Assign | ast.AnnAssign) -> bool:
+    """Return whether the script opts out of cuDNN benchmark mode.
+
+    True when it enables deterministic mode (``cudnn.deterministic = True``) or
+    explicitly disables benchmarking (``cudnn.benchmark = False``); in both cases
+    suggesting ``cudnn.benchmark = True`` would be unwanted or contradictory.
+    """
+
+    value = node.value
+    if not isinstance(value, ast.Constant):
+        return False
+
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+    names = {_attribute_name(target) for target in targets}
+    if value.value is True and "torch.backends.cudnn.deterministic" in names:
+        return True
+    if value.value is False and "torch.backends.cudnn.benchmark" in names:
+        return True
+    return False
+
+
+def _call_last_name(func: ast.AST) -> str:
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    if isinstance(func, ast.Name):
+        return func.id
+    return ""
 
 
 def loop_contains_training_step(loop_node: ast.AST) -> bool:

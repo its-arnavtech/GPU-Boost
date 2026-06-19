@@ -222,7 +222,9 @@ def test_batch_size_rule_adds_limited_scaling_warning() -> None:
     assert recommendation.related_metrics == ["best_batch_size", "speedup_vs_batch_1"]
 
 
-def test_batch_size_rule_can_return_both_recommendations() -> None:
+def test_batch_size_rule_prefers_increase_over_limited_when_scaling_is_good() -> None:
+    # best_batch_size <= 4 but scaling is strong: recommend increasing the batch
+    # size and suppress the contradictory "scaling limited" warning.
     suite = _make_suite(
         [
             _make_result(
@@ -239,7 +241,6 @@ def test_batch_size_rule_can_return_both_recommendations() -> None:
 
     assert [recommendation.id for recommendation in recommendations] == [
         "batch_size_increase",
-        "batch_size_scaling_limited",
     ]
 
 

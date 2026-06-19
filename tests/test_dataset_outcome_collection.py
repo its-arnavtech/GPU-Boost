@@ -599,3 +599,32 @@ def _contains_key(value: object, target_key: str) -> bool:
     if isinstance(value, list):
         return any(_contains_key(item, target_key) for item in value)
     return False
+
+
+def test_cli_collect_outcomes_exits_nonzero_when_all_pairs_fail(tmp_path) -> None:
+    from gpuboost.cli import main as cli_main
+
+    pairs_path = tmp_path / "pairs.json"
+    pairs_path.write_text(
+        json.dumps(
+            [
+                {
+                    "baseline_json_path": "does_not_exist_a.json",
+                    "optimized_json_path": "does_not_exist_b.json",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    exit_code = cli_main.main(
+        [
+            "dataset",
+            "collect-outcomes",
+            str(pairs_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    assert exit_code == 1

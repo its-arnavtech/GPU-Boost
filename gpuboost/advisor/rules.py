@@ -101,12 +101,13 @@ def batch_size_rule(suite: BenchmarkSuiteResult) -> list[Recommendation]:
     best_batch_size = get_metric(result, "best_batch_size")
     speedup_vs_batch_1 = get_metric(result, "speedup_vs_batch_1")
 
-    if (
+    increase_recommended = (
         speedup_vs_batch_1 is not None
         and best_batch_size is not None
         and speedup_vs_batch_1 >= 1.25
         and best_batch_size > 1
-    ):
+    )
+    if increase_recommended:
         recommendations.append(
             _batch_size_increase_recommendation(
                 result,
@@ -115,7 +116,13 @@ def batch_size_rule(suite: BenchmarkSuiteResult) -> list[Recommendation]:
             ),
         )
 
-    if best_batch_size is not None and best_batch_size <= 4:
+    # Only warn about limited scaling when we are NOT already recommending a
+    # larger batch; otherwise the two recommendations contradict each other.
+    if (
+        not increase_recommended
+        and best_batch_size is not None
+        and best_batch_size <= 4
+    ):
         recommendations.append(
             _batch_size_limited_recommendation(
                 result,
