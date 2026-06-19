@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from gpuboost.model import neural_training
+from gpuboost.model import neural, neural_training
 from gpuboost.model.neural import torch_available
 from gpuboost.model.neural_training import (
     OVERFIT_WARNING,
     TARGET_WARNING,
+    _require_torch,
     build_default_neural_search_configs,
     run_neural_config_search,
     run_neural_hyperparameter_search,
@@ -22,6 +23,21 @@ from gpuboost.schemas.training import (
     TrainingDatasetSummary,
     TrainingEvaluationResult,
 )
+
+
+def test_require_torch_raises_runtime_error_when_unavailable(monkeypatch) -> None:
+    # Explicit guard (not assert) so it still fires under `python -O`.
+    monkeypatch.setattr(neural, "torch", None)
+
+    with pytest.raises(RuntimeError, match="PyTorch is required"):
+        _require_torch()
+
+
+def test_require_torch_returns_module_when_available() -> None:
+    if not torch_available():
+        pytest.skip("PyTorch is unavailable.")
+
+    assert _require_torch() is neural.torch
 
 
 def test_train_neural_classifier_returns_usable_result_on_tiny_dataset() -> None:

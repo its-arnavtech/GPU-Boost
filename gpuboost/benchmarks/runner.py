@@ -7,7 +7,10 @@ from collections.abc import Callable
 
 from gpuboost.benchmarks.batch_sweep import run_batch_sweep_benchmark
 from gpuboost.benchmarks.common import make_error_result, utc_now
-from gpuboost.benchmarks.dataloader import run_dataloader_benchmark
+from gpuboost.benchmarks.dataloader import (
+    run_dataloader_benchmark,
+    run_quick_dataloader_benchmark,
+)
 from gpuboost.benchmarks.matmul import run_matmul_benchmark
 from gpuboost.benchmarks.mixed_precision import run_mixed_precision_benchmark
 from gpuboost.inspector.profile import collect_profile
@@ -59,6 +62,7 @@ def run_quick_benchmark(device_index: int = 0) -> BenchmarkSuiteResult:
             run_matmul_benchmark,
             run_mixed_precision_benchmark,
             run_batch_sweep_benchmark,
+            run_quick_dataloader_benchmark,
         ],
         device_index,
     )

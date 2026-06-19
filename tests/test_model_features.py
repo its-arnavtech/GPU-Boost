@@ -203,6 +203,35 @@ def test_sanitize_feature_value_truncates_or_omits_long_strings() -> None:
     assert len(sanitized) == 500
 
 
+def test_sanitize_feature_value_keeps_prose_that_mentions_code_words() -> None:
+    # Multi-line descriptions that merely mention "import"/"class" must NOT be
+    # dropped as raw content.
+    prose = "Remember to import the new dataset first.\nThen run the class demo."
+    assert sanitize_feature_value(prose) == prose
+
+    note = "GPU notes: driver 535 --- update pending\nCUDA 12.1 detected"
+    assert sanitize_feature_value(note) == note
+
+
+def test_sanitize_feature_value_drops_real_source_code() -> None:
+    assert sanitize_feature_value("def secret():\n    return 1") is None
+    assert sanitize_feature_value("import torch\nimport os") is None
+    assert (
+        sanitize_feature_value("from torch import nn\nmodel = nn.Linear(1, 1)")
+        is None
+    )
+
+
+def test_sanitize_feature_value_drops_diffs_and_code_fences() -> None:
+    assert (
+        sanitize_feature_value("--- a.py\n+++ b.py\n-x = 1\n+x = 2") is None
+    )
+    assert (
+        sanitize_feature_value("@@ -1,2 +1,3 @@ def f():\n    pass") is None
+    )
+    assert sanitize_feature_value("Example:\n```\ncode\n```") is None
+
+
 def test_safe_count_counts_only_supported_values() -> None:
     assert safe_count([1, 2]) == 2
     assert safe_count({"a": 1}) == 1

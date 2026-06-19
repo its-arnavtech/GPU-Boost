@@ -48,11 +48,13 @@ def _build_batch_sweep_metrics(
     best_images_per_sec = None
     if throughput_by_batch:
         peak_images_per_sec = max(throughput_by_batch.values())
-        near_peak_threshold = peak_images_per_sec * 0.98
-        best_batch_size = max(
+        # Pick the batch size that actually achieved peak throughput. On ties,
+        # prefer the smaller batch: recommending a larger batch that was only
+        # within measurement noise wastes VRAM and risks OOM in user training.
+        best_batch_size = min(
             batch_size
             for batch_size, images_per_sec in throughput_by_batch.items()
-            if images_per_sec >= near_peak_threshold
+            if images_per_sec >= peak_images_per_sec
         )
         best_images_per_sec = throughput_by_batch[best_batch_size]
 
