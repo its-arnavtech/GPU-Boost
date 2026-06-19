@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import shutil
 import subprocess
+from dataclasses import fields, replace
 from io import StringIO
 from typing import Any, Optional
 
@@ -319,12 +320,24 @@ def _query_nvidia_smi(warnings: list[str]) -> dict[int, dict[str, object]]:
     return results
 
 
-def _apply_info(profile: GPUDeviceProfile, info: dict[str, object]) -> None:
-    """Fill missing profile fields from another inspection source."""
+def _apply_info(
+    profile: GPUDeviceProfile, info: dict[str, object]
+) -> GPUDeviceProfile:
+    """Return a profile with missing fields filled from another source.
 
-    for field_name, value in info.items():
-        if value is not None and getattr(profile, field_name) is None:
-            setattr(profile, field_name, value)
+    Builds a new instance via dataclasses.replace instead of mutating in place,
+    so the function keeps working even if GPUDeviceProfile becomes frozen/slotted.
+    """
+
+    field_names = {f.name for f in fields(profile)}
+    updates = {
+        field_name: value
+        for field_name, value in info.items()
+        if field_name in field_names
+        and value is not None
+        and getattr(profile, field_name) is None
+    }
+    return replace(profile, **updates) if updates else profile
 
 
 def collect_gpu_profiles(warnings: list[str] | None = None) -> list[GPUDeviceProfile]:
@@ -345,7 +358,7 @@ def collect_gpu_profiles(warnings: list[str] | None = None) -> list[GPUDevicePro
                 name=str(info.get("name") or f"NVIDIA GPU {index}"),
             )
             profiles_by_index[index] = profile
-        _apply_info(profile, info)
+        profiles_by_index[index] = _apply_info(profile, info)
 
     for index, info in torch_devices.items():
         profile = profiles_by_index.get(index)
@@ -355,7 +368,7 @@ def collect_gpu_profiles(warnings: list[str] | None = None) -> list[GPUDevicePro
                 name=str(info.get("name") or f"NVIDIA GPU {index}"),
             )
             profiles_by_index[index] = profile
-        _apply_info(profile, info)
+        profiles_by_index[index] = _apply_info(profile, info)
 
     for profile in profiles_by_index.values():
         if profile.tensor_cores_supported is None:

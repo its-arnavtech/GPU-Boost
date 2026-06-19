@@ -68,15 +68,25 @@ def generate_unified_diff(
     if original_text == modified_text:
         return ""
 
+    # Keep line endings so a change that only adds/removes a trailing newline is
+    # still detected (splitlines() without keepends would miss it). difflib does
+    # not emit the git-style "\ No newline at end of file" marker, so add it for
+    # content lines that lack a trailing newline (which also prevents adjacent
+    # lines from concatenating when joined).
     diff_lines = difflib.unified_diff(
-        original_text.splitlines(),
-        modified_text.splitlines(),
+        original_text.splitlines(keepends=True),
+        modified_text.splitlines(keepends=True),
         fromfile=filepath,
         tofile=f"{filepath} (GPUBoost suggested)",
         n=context_lines,
-        lineterm="",
     )
-    return "\n".join(diff_lines)
+    rendered: list[str] = []
+    for line in diff_lines:
+        if line.endswith("\n"):
+            rendered.append(line)
+        else:
+            rendered.append(f"{line}\n\\ No newline at end of file\n")
+    return "".join(rendered)
 
 
 def generate_patch_plan_diff(

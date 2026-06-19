@@ -10,6 +10,7 @@ import importlib
 import importlib.util
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from gpuboost import __version__
@@ -1081,7 +1082,12 @@ def _check_gitignore_safety() -> dict[str, object]:
         "*.sqlite",
         "*.sqlite3",
     ]
-    missing = [pattern for pattern in expected_patterns if pattern not in gitignore]
+    active_patterns = {
+        line.strip()
+        for line in gitignore.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    missing = [pattern for pattern in expected_patterns if pattern not in active_patterns]
     return {
         "name": "gitignore_generated_artifacts",
         "status": "failed" if missing else "passed",
@@ -1260,18 +1266,21 @@ def _run_model_train_neural(args: argparse.Namespace) -> int:
                 baseline_macro_f1=baseline_macro_f1,
                 target_macro_f1=args.target_macro_f1,
             )
-            search.best_result = single_result
-            search.candidates = [single_result]
-            search.best_config = single_result.config
-            search.best_validation_macro_f1 = (
-                single_result.validation_evaluation.macro_f1
-                if single_result.validation_evaluation is not None
-                else None
-            )
-            search.best_test_macro_f1 = (
-                single_result.test_evaluation.macro_f1
-                if single_result.test_evaluation is not None
-                else None
+            search = replace(
+                search,
+                best_result=single_result,
+                candidates=[single_result],
+                best_config=single_result.config,
+                best_validation_macro_f1=(
+                    single_result.validation_evaluation.macro_f1
+                    if single_result.validation_evaluation is not None
+                    else None
+                ),
+                best_test_macro_f1=(
+                    single_result.test_evaluation.macro_f1
+                    if single_result.test_evaluation is not None
+                    else None
+                ),
             )
             _attach_baseline_metadata(search, baseline_model_name, baseline_macro_f1)
             artifact_manifest = save_neural_model_artifact(
