@@ -67,10 +67,15 @@ def test_score_mappings() -> None:
     assert confidence_score("high") == 3
 
 
-def test_unknown_score_labels_return_one() -> None:
-    assert effort_score("unknown") == 1
+def test_unknown_impact_and_confidence_default_to_low() -> None:
     assert impact_score("urgent") == 1
     assert confidence_score("") == 1
+
+
+def test_unknown_effort_defaults_to_medium_not_low() -> None:
+    # Effort is the divisor in rank_score; defaulting an unknown label to low
+    # (1) would inflate the score, so it must default to medium (2).
+    assert effort_score("unknown") == 2
 
 
 def test_rank_score_formula() -> None:

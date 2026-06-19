@@ -373,6 +373,24 @@ def test_warning_propagation_rule_creates_recommendation_for_warnings() -> None:
     assert recommendation.warnings == ["Batch sweep hit an out-of-memory condition."]
 
 
+def test_warning_propagation_includes_all_warnings_in_summary() -> None:
+    suite = _make_suite(
+        [
+            _make_result(
+                "Batch Size Sweep",
+                metrics=[],
+                warnings=["OOM at batch 256", "Fell back to FP32"],
+            ),
+        ],
+    )
+
+    recommendation = warning_propagation_rule(suite)[0]
+
+    assert "OOM at batch 256" in recommendation.summary
+    assert "Fell back to FP32" in recommendation.summary
+    assert recommendation.warnings == ["OOM at batch 256", "Fell back to FP32"]
+
+
 def test_warning_id_slug_is_stable() -> None:
     suite = _make_suite(
         [

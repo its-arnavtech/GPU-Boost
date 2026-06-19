@@ -188,7 +188,7 @@ def warning_propagation_rule(suite: BenchmarkSuiteResult) -> list[Recommendation
                     confidence="high",
                     effort="low",
                     estimated_speedup=None,
-                    summary=result.warnings[0],
+                    summary="; ".join(result.warnings),
                     rationale=(
                         "Benchmark warnings indicate results that may require "
                         "interpretation before applying recommendations."

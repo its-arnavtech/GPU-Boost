@@ -39,21 +39,25 @@ def confidence_from_signal(
 
 
 def effort_score(effort: str) -> int:
-    """Return numeric score for an effort label."""
+    """Return numeric score for an effort label.
 
-    return _label_score(effort)
+    Effort is the divisor in rank_score, so an unknown label defaults to medium
+    rather than low to avoid silently inflating a recommendation's rank.
+    """
+
+    return _label_score(effort, default=2)
 
 
 def impact_score(impact: str) -> int:
     """Return numeric score for an impact label."""
 
-    return _label_score(impact)
+    return _label_score(impact, default=1)
 
 
 def confidence_score(confidence: str) -> int:
     """Return numeric score for a confidence label."""
 
-    return _label_score(confidence)
+    return _label_score(confidence, default=1)
 
 
 def rank_score(recommendation: Recommendation) -> float:
@@ -86,5 +90,5 @@ def sort_and_prioritize(
     return sorted_recommendations
 
 
-def _label_score(label: str) -> int:
-    return _SCORE_BY_LABEL.get(label, 1)
+def _label_score(label: str, default: int = 1) -> int:
+    return _SCORE_BY_LABEL.get(label, default)

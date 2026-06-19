@@ -35,40 +35,56 @@ _FORBIDDEN_VALUE_PATTERNS = (
 )
 
 
-def find_json_leaks(value: Any) -> list[JsonLeak]:
-    """Return suspicious keys or raw sensitive values in JSON-like data."""
+def find_json_leaks(value: Any, allow_raw_streams: bool = False) -> list[JsonLeak]:
+    """Return suspicious keys or raw sensitive values in JSON-like data.
+
+    Set ``allow_raw_streams=True`` when auditing output that the caller has
+    explicitly opted into raw stdout/stderr for (e.g. ``--include-raw-artifacts``)
+    so populated stream keys are not reported as leaks.
+    """
 
     leaks: list[JsonLeak] = []
-    _scan_json(value, "$", leaks)
+    _scan_json(value, "$", leaks, allow_raw_streams)
     return leaks
 
 
-def _scan_json(value: Any, path: str, leaks: list[JsonLeak]) -> None:
+def _scan_json(
+    value: Any,
+    path: str,
+    leaks: list[JsonLeak],
+    allow_raw_streams: bool = False,
+) -> None:
     if isinstance(value, dict):
         for key, item in value.items():
             key_text = str(key)
             item_path = f"{path}.{key_text}"
-            _scan_key(key_text, item, item_path, leaks)
-            _scan_json(item, item_path, leaks)
+            _scan_key(key_text, item, item_path, leaks, allow_raw_streams)
+            _scan_json(item, item_path, leaks, allow_raw_streams)
         return
 
     if isinstance(value, list):
         for index, item in enumerate(value):
-            _scan_json(item, f"{path}[{index}]", leaks)
+            _scan_json(item, f"{path}[{index}]", leaks, allow_raw_streams)
         return
 
     if isinstance(value, str):
         _scan_string(value, path, leaks)
 
 
-def _scan_key(key: str, value: Any, path: str, leaks: list[JsonLeak]) -> None:
+def _scan_key(
+    key: str,
+    value: Any,
+    path: str,
+    leaks: list[JsonLeak],
+    allow_raw_streams: bool = False,
+) -> None:
     normalized = key.lower()
     if normalized in _FORBIDDEN_EXACT_KEYS:
         leaks.append(JsonLeak(path=path, reason=f"forbidden key {key!r}"))
         return
 
     if normalized in {"stdout", "stderr"}:
-        if value not in (None, "", [], {}):
+        if not allow_raw_streams and value not in (None, "", [], {}):
             leaks.append(JsonLeak(path=path, reason=f"raw stream key {key!r}"))
         return
 

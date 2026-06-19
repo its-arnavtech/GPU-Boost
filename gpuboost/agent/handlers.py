@@ -168,6 +168,10 @@ def handle_run_trial_workspace(state: AgentState, action: AgentAction) -> None:
         original_file=script_path,
         patch_plan=patch_plan,
         test_command=str(test_command) if test_command is not None else None,
+        # The agent only reaches a trial after statically analyzing the script as
+        # Python, so run the syntax check even if the file lacks a .py extension
+        # (e.g., the bundled examples/bad_train_sample.txt example).
+        force_python_syntax=True,
     )
     state.metadata["_trial_result"] = trial_result
     state.metadata["trial_result"] = trial_result.to_dict()
