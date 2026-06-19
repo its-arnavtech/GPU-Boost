@@ -23,6 +23,23 @@ OVERFIT_WARNING = "Validation/test gap suggests possible overfitting."
 TARGET_WARNING = "Target macro F1 was not reached; best result is reported honestly."
 
 
+def _require_torch() -> Any:
+    """Return the torch module, raising a clear error if it is unavailable.
+
+    Uses an explicit check rather than ``assert`` so the guard is not stripped
+    when Python runs with ``-O``/``-OO`` (optimized mode), which would otherwise
+    surface as a confusing ``AttributeError`` deep inside tensor operations.
+    """
+
+    torch = neural.torch
+    if torch is None:
+        raise RuntimeError(
+            "PyTorch is required for neural model training. "
+            "Install it with: pip install torch"
+        )
+    return torch
+
+
 def train_neural_classifier(
     dataset: EncodedTrainingDataset,
     config: NeuralTrainingConfig | None = None,
@@ -74,8 +91,7 @@ def _train_neural_classifier_with_model(
         warnings.append(str(error))
         return None, _error_result(config, warnings, baseline_macro_f1)
 
-    torch = neural.torch
-    assert torch is not None
+    torch = _require_torch()
     neural.set_training_seed(config.seed)
 
     X_train = torch.tensor(train_split["X"], dtype=torch.float32, device=device)
@@ -234,8 +250,7 @@ def predict_neural_classifier(model: object, X: list[list[float]]) -> list[int]:
         raise ValueError("PyTorch is unavailable; neural prediction cannot run.")
     if not X:
         return []
-    torch = neural.torch
-    assert torch is not None
+    torch = _require_torch()
 
     device = getattr(model, "_gpuboost_device", "cpu")
     mean = getattr(model, "_gpuboost_feature_mean", None)
@@ -502,8 +517,7 @@ def _class_weights(
     class_count: int,
     device: str,
 ) -> object:
-    torch = neural.torch
-    assert torch is not None
+    torch = _require_torch()
     counts = [max(y_train.count(label), 0) for label in range(class_count)]
     total = sum(counts)
     weights = [
@@ -524,8 +538,7 @@ def _loss_for_split(
 ) -> float:
     if not X or not y:
         return 0.0
-    torch = neural.torch
-    assert torch is not None
+    torch = _require_torch()
     model.eval()
     with torch.no_grad():
         inputs = torch.tensor(X, dtype=torch.float32, device=device)

@@ -40,7 +40,13 @@ def _loader_kwargs(num_workers: int) -> dict[str, int]:
     return {"prefetch_factor": 2}
 
 
-def run_dataloader_benchmark(device_index: int = 0) -> BenchmarkResult:
+def run_dataloader_benchmark(
+    device_index: int = 0,
+    *,
+    num_workers_options: list[int] | None = None,
+    dataset_length: int = 2048,
+    max_batches: int = 8,
+) -> BenchmarkResult:
     """Measure synthetic DataLoader throughput across workers and pin_memory."""
 
     name = "DataLoader"
@@ -48,7 +54,8 @@ def run_dataloader_benchmark(device_index: int = 0) -> BenchmarkResult:
     started = time.perf_counter()
     warnings: list[str] = []
     batch_size = 64
-    max_batches = 8
+    if num_workers_options is None:
+        num_workers_options = [0, 1, 2, 4, 8]
 
     try:
         import torch
@@ -68,8 +75,7 @@ def run_dataloader_benchmark(device_index: int = 0) -> BenchmarkResult:
         cuda_available = False
         device = None
 
-    dataset = SyntheticImageDataset()
-    num_workers_options = [0, 1, 2, 4, 8]
+    dataset = SyntheticImageDataset(length=dataset_length)
     pin_memory_options = [False, True]
     throughput: dict[tuple[int, bool], float] = {}
 
@@ -192,4 +198,20 @@ def run_dataloader_benchmark(device_index: int = 0) -> BenchmarkResult:
         metrics=metrics,
         warnings=warnings,
         error=None,
+    )
+
+
+def run_quick_dataloader_benchmark(device_index: int = 0) -> BenchmarkResult:
+    """Run a lightweight DataLoader benchmark for the quick suite.
+
+    Tests only ``num_workers`` in ``{0, 2}`` on a small dataset so the quick
+    suite stays fast while still producing ``best_num_workers``/``pin_memory``
+    signals the advisor needs to recommend DataLoader settings.
+    """
+
+    return run_dataloader_benchmark(
+        device_index,
+        num_workers_options=[0, 2],
+        dataset_length=256,
+        max_batches=4,
     )

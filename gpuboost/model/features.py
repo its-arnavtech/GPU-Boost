@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
@@ -351,8 +352,40 @@ def _is_unsafe_key(key: Any) -> bool:
     return any(part in key_text for part in _UNSAFE_KEY_PARTS)
 
 
+_CODE_LINE_RE = re.compile(
+    r"^(?:(?:async\s+)?def\s+\w+\s*\(|class\s+\w+[\s(:]|"
+    r"import\s+[\w.]+(?:\s+as\s+\w+)?(?:\s*,\s*[\w.]+)*\s*$|"
+    r"from\s+[\w.]+\s+import\s+|@\w[\w.]*)"
+)
+
+
 def _looks_like_raw_content(value: str) -> bool:
+    """Heuristically detect pasted source code, diffs, or fenced code blocks.
+
+    Uses line-anchored signals instead of plain substring matching so that
+    ordinary multi-line descriptions that merely mention words like ``import``
+    or ``class`` are not misclassified as raw content and silently dropped.
+    """
+
     if "\n" not in value:
         return False
-    markers = ("---", "+++", "@@", "def ", "class ", "import ", "```")
-    return any(marker in value for marker in markers)
+
+    stripped = [line.strip() for line in value.splitlines()]
+
+    # Unified-diff / git-diff signatures (line-anchored and corroborated).
+    has_diff_headers = any(s.startswith("--- ") for s in stripped) and any(
+        s.startswith("+++ ") for s in stripped
+    )
+    has_hunk_header = any(
+        s.startswith("@@ ") and s.count("@@") >= 2 for s in stripped
+    )
+    has_git_diff = any(s.startswith("diff --git ") for s in stripped)
+    if has_diff_headers or has_hunk_header or has_git_diff:
+        return True
+
+    # A fenced code block is a strong signal on its own.
+    if any(s.startswith("```") for s in stripped):
+        return True
+
+    # Otherwise require a line that clearly begins a Python construct.
+    return any(_CODE_LINE_RE.match(s) for s in stripped)
