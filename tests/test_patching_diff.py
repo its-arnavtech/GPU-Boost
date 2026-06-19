@@ -237,3 +237,10 @@ def _suggestion(edits: list[PatchEdit]) -> PatchSuggestion:
         rationale="Rationale.",
         edits=edits,
     )
+
+
+def test_unified_diff_marks_missing_final_newline() -> None:
+    # Neither side has a trailing newline; standard diff output notes it.
+    diff = generate_unified_diff("a = 1", "a = 2", "train.py")
+
+    assert "No newline at end of file" in diff

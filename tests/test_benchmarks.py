@@ -184,3 +184,17 @@ def test_benchmark_result_preserves_warnings() -> None:
 
     assert result.to_dict()["warnings"] == ["important warning"]
 
+
+
+def test_synthetic_image_dataset_is_deterministic_per_index() -> None:
+    import pytest
+
+    torch = pytest.importorskip("torch")
+    ds = dataloader.SyntheticImageDataset(length=8)
+
+    first_a, _ = ds[0]
+    first_b, _ = ds[0]
+    second, _ = ds[1]
+
+    assert torch.equal(first_a, first_b)  # same index -> identical sample
+    assert not torch.equal(first_a, second)  # different index -> different sample

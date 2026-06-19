@@ -315,3 +315,10 @@ def _make_record(
         trial_summary=trial_summary or {},
         comparison_summary=comparison_summary or {},
     )
+
+
+def test_sanitize_keeps_text_with_dash_and_at_separators() -> None:
+    # Regression for substring-based raw-content detection: "---" used as a
+    # visual separator (not a diff header) must not cause the value to be dropped.
+    value = "Section A\n--- details ---\nSection B @@ note"
+    assert sanitize_feature_value(value) == value

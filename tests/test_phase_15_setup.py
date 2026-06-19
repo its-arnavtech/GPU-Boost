@@ -107,3 +107,52 @@ def _git_ls_files(*patterns: str) -> list[str]:
         text=True,
     )
     return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def test_gitignore_check_flags_commented_pattern(monkeypatch) -> None:
+    from gpuboost.cli import main as cli_main
+
+    lines = [
+        "data/gpuboost/generated/",
+        "data/gpuboost/raw/",
+        "# *.pt",  # commented out -> must be treated as missing
+        "*.pth",
+        "*.safetensors",
+        "*.onnx",
+        "*.pkl",
+        "*.joblib",
+        "*.db",
+        "*.sqlite",
+        "*.sqlite3",
+    ]
+    monkeypatch.setattr(
+        cli_main, "_read_optional_text", lambda path: "\n".join(lines) + "\n"
+    )
+
+    result = cli_main._check_gitignore_safety()
+
+    assert result["status"] == "failed"
+    assert "*.pt" in result["message"]
+
+
+def test_gitignore_check_passes_when_all_patterns_active(monkeypatch) -> None:
+    from gpuboost.cli import main as cli_main
+
+    lines = [
+        "data/gpuboost/generated/",
+        "data/gpuboost/raw/",
+        "*.pt",
+        "*.pth",
+        "*.safetensors",
+        "*.onnx",
+        "*.pkl",
+        "*.joblib",
+        "*.db",
+        "*.sqlite",
+        "*.sqlite3",
+    ]
+    monkeypatch.setattr(
+        cli_main, "_read_optional_text", lambda path: "\n".join(lines) + "\n"
+    )
+
+    assert cli_main._check_gitignore_safety()["status"] == "passed"

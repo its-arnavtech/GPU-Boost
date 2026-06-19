@@ -30,8 +30,12 @@ class SyntheticImageDataset:
     def __getitem__(self, index: int):
         import torch
 
-        del index
-        return torch.randn(self.shape), torch.tensor(0, dtype=torch.long)
+        # Deterministic, index-stable samples: a per-index seeded generator keeps
+        # the benchmark reproducible across runs and workers, and measures
+        # DataLoader/transfer overhead rather than RNG variance.
+        generator = torch.Generator().manual_seed(index % self.length)
+        image = torch.randn(self.shape, generator=generator)
+        return image, torch.tensor(0, dtype=torch.long)
 
 
 def _loader_kwargs(num_workers: int) -> dict[str, int]:
