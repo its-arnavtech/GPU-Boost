@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from gpuboost.model.artifacts import load_neural_model_artifact
@@ -256,6 +257,10 @@ class TrainedLocalModelProvider(BaseModelProvider):
 
     def _ensure_loaded(self) -> None:
         if self._loaded or self._load_error is not None:
+            return
+        manifest_path = Path(self.manifest_path).expanduser()
+        if not manifest_path.exists():
+            self._load_error = f"Artifact manifest not found: {self.manifest_path}"
             return
         try:
             (
