@@ -1,5 +1,20 @@
 # GPUBoost Release Notes
 
+## 0.1.2 Packaging Fix
+
+GPUBoost `0.1.2` completes the follow-up packaging fix after local validation
+of `0.1.1` showed that Torch-backed optional installs could still surface
+PyTorch's missing-NumPy warning.
+
+- Added NumPy to the Torch-backed optional extras: `benchmark`, `model`, and
+  `all`.
+- Prevented the PyTorch missing-NumPy warning in `gpuboost[benchmark]`,
+  `gpuboost[model]`, and `gpuboost[all]` installs.
+- Preserved the lightweight base install for inspection, analysis, compare,
+  history, demo discovery, and safety-check workflows.
+- Kept PyTorch optional instead of moving Torch or NumPy into base runtime
+  dependencies.
+
 ## 0.1.1 Maintenance Release
 
 GPUBoost `0.1.1` is the follow-up release prepared after TestPyPI validation of
