@@ -73,17 +73,17 @@ def test_demo_validation_report_excludes_unsafe_payloads(tmp_path) -> None:
 
 def test_demo_validation_report_avoids_private_absolute_paths(tmp_path) -> None:
     result = _comparison_result()
-    result["baseline_label"] = r"C:\Users\Arnav\private\baseline.json"
-    result["optimized_label"] = "/home/arnav/private/optimized.json"
+    result["baseline_label"] = r"C:\Users\TestUser\private\baseline.json"
+    result["optimized_label"] = "/home/testuser/private/optimized.json"
     result["sections"][0]["metrics"][0]["summary"] = (
-        r"C:\Users\Arnav\private\baseline.json improved"
+        r"C:\Users\TestUser\private\baseline.json improved"
     )
 
     report = create_demo_validation_report([result], output_dir=str(tmp_path))
     serialized = json.dumps(report)
 
-    assert r"C:\Users\Arnav" not in serialized
-    assert "/home/arnav" not in serialized
+    assert r"C:\Users\TestUser" not in serialized
+    assert "/home/testuser" not in serialized
     assert "[path]" in serialized
 
 
