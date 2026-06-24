@@ -249,12 +249,12 @@ def test_workflow_preserves_no_source_edit_safety(tmp_path) -> None:
     assert source_path.read_text(encoding="utf-8") == original_source
 
 
-def test_workflow_returns_error_report_when_required_fake_handler_fails() -> None:
+def test_workflow_returns_error_report_when_no_script_benchmark_fails() -> None:
     handlers = _fake_handlers()
     handlers[RUN_QUICK_BENCHMARK] = _raise("benchmark failed")
 
     result, report = run_optimize_script_workflow(
-        script_path="train.py",
+        script_path=None,
         handlers=handlers,
     )
 
@@ -391,8 +391,6 @@ def test_workflow_can_use_injected_handlers_instead_of_default_handlers() -> Non
     assert report.status == "ok"
     assert marker == {
         INSPECT_SYSTEM: True,
-        RUN_QUICK_BENCHMARK: True,
-        GENERATE_RECOMMENDATIONS: True,
         ANALYZE_CODE: True,
         CREATE_PATCH_PLAN: True,
         GENERATE_DIFF: True,

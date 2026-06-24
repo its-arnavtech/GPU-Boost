@@ -1140,9 +1140,9 @@ def _read_optional_text(path: Path) -> str:
 
 
 def load_json_file(filepath: str) -> dict:
-    """Load a UTF-8 JSON object from disk."""
+    """Load a UTF-8 JSON object from disk, accepting an optional BOM."""
 
-    with Path(filepath).open(encoding="utf-8") as file:
+    with Path(filepath).open(encoding="utf-8-sig") as file:
         data = json.load(file)
 
     if not isinstance(data, dict):

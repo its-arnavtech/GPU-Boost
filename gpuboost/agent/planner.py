@@ -30,14 +30,6 @@ def create_optimize_script_plan(goal: AgentGoal) -> AgentPlan:
 
     actions = [
         create_agent_action(INSPECT_SYSTEM),
-        create_agent_action(
-            RUN_QUICK_BENCHMARK,
-            depends_on=[INSPECT_SYSTEM],
-        ),
-        create_agent_action(
-            GENERATE_RECOMMENDATIONS,
-            depends_on=[RUN_QUICK_BENCHMARK],
-        ),
     ]
     warnings: list[str] = []
 
@@ -78,6 +70,18 @@ def create_optimize_script_plan(goal: AgentGoal) -> AgentPlan:
                 )
             )
     else:
+        actions.extend(
+            [
+                create_agent_action(
+                    RUN_QUICK_BENCHMARK,
+                    depends_on=[INSPECT_SYSTEM],
+                ),
+                create_agent_action(
+                    GENERATE_RECOMMENDATIONS,
+                    depends_on=[RUN_QUICK_BENCHMARK],
+                ),
+            ],
+        )
         warnings.append(NO_SCRIPT_PATH_WARNING)
         if trial_requested:
             warnings.append(TRIAL_REQUIRES_SCRIPT_PATH_WARNING)

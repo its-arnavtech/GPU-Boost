@@ -137,5 +137,5 @@ jobs:
       - name: Run Bandit static analysis
         run: bandit -r gpuboost --severity-level medium
 
-      - name: Audit installed dependencies
-        run: pip-audit --progress-spinner off
+      - name: Audit project dependencies
+        run: pip-audit . --progress-spinner off

@@ -18,9 +18,10 @@ python -m gpuboost agent optimize train.py --model-artifact data/gpuboost/genera
 python -m gpuboost agent optimize .\examples\bad_train_sample.txt --model --trial --json
 ```
 
-The current agent workflow defaults to `quick=True` because the implemented
-benchmark action is the quick benchmark path. Full benchmark agent mode is a
-future feature.
+The current agent workflow defaults to `quick=True`. Script-targeted runs use
+the lightweight static analysis and patch-planning path; no-script runs use the
+quick benchmark path for system-level recommendations. Full benchmark agent
+mode is a future feature.
 
 ## Purpose
 
@@ -33,7 +34,7 @@ Without a script path, it performs system-level analysis:
 - generate advisor recommendations
 - summarize the run
 
-With a script path, it also:
+With a script path, it performs a lightweight review-only path:
 
 - analyzes PyTorch code statically
 - creates a safe patch plan

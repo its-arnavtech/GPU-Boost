@@ -24,8 +24,6 @@ from gpuboost.schemas.agent import AgentAction, AgentGoal
 
 ALL_OPTIMIZE_ACTIONS = [
     INSPECT_SYSTEM,
-    RUN_QUICK_BENCHMARK,
-    GENERATE_RECOMMENDATIONS,
     ANALYZE_CODE,
     CREATE_PATCH_PLAN,
     GENERATE_DIFF,
@@ -40,11 +38,11 @@ NO_SCRIPT_ACTIONS = [
 ]
 
 
-def test_optimize_script_with_script_path_includes_all_seven_actions() -> None:
+def test_optimize_script_with_script_path_includes_static_review_actions() -> None:
     plan = create_optimize_script_plan(_make_goal(script_path="train.py"))
 
     assert [action.name for action in plan.actions] == ALL_OPTIMIZE_ACTIONS
-    assert len(plan.actions) == 7
+    assert len(plan.actions) == 5
 
 
 def test_optimize_script_without_script_path_skips_code_patch_diff_actions() -> None:
@@ -75,8 +73,6 @@ def test_dependencies_are_correct() -> None:
     dependencies = {action.id: action.depends_on for action in plan.actions}
 
     assert dependencies[INSPECT_SYSTEM] == []
-    assert dependencies[RUN_QUICK_BENCHMARK] == [INSPECT_SYSTEM]
-    assert dependencies[GENERATE_RECOMMENDATIONS] == [RUN_QUICK_BENCHMARK]
     assert dependencies[ANALYZE_CODE] == [INSPECT_SYSTEM]
     assert dependencies[CREATE_PATCH_PLAN] == [ANALYZE_CODE]
     assert dependencies[GENERATE_DIFF] == [CREATE_PATCH_PLAN]
@@ -87,12 +83,22 @@ def test_action_inputs_include_script_path_where_expected() -> None:
     inputs = {action.id: action.inputs for action in plan.actions}
 
     assert inputs[INSPECT_SYSTEM] == {}
-    assert inputs[RUN_QUICK_BENCHMARK] == {}
-    assert inputs[GENERATE_RECOMMENDATIONS] == {}
     assert inputs[ANALYZE_CODE] == {"script_path": "train.py"}
     assert inputs[CREATE_PATCH_PLAN] == {"script_path": "train.py"}
     assert inputs[GENERATE_DIFF] == {"script_path": "train.py"}
     assert inputs[SUMMARIZE_RESULTS] == {}
+
+
+def test_no_script_plan_keeps_benchmark_recommendation_actions() -> None:
+    plan = create_optimize_script_plan(_make_goal(script_path=None))
+    dependencies = {action.id: action.depends_on for action in plan.actions}
+    inputs = {action.id: action.inputs for action in plan.actions}
+
+    assert [action.name for action in plan.actions] == NO_SCRIPT_ACTIONS
+    assert dependencies[RUN_QUICK_BENCHMARK] == [INSPECT_SYSTEM]
+    assert dependencies[GENERATE_RECOMMENDATIONS] == [RUN_QUICK_BENCHMARK]
+    assert inputs[RUN_QUICK_BENCHMARK] == {}
+    assert inputs[GENERATE_RECOMMENDATIONS] == {}
 
 
 def test_summarize_results_depends_on_all_included_prior_actions() -> None:
