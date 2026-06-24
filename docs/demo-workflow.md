@@ -31,9 +31,8 @@ python -m gpuboost agent optimize examples/bad_train_sample.txt
 python -m gpuboost agent optimize examples/bad_train_sample.txt --json
 ```
 
-The agent inspects the system, runs the quick benchmark path, generates
-deterministic recommendations, analyzes the sample script, and emits a
-reviewable diff when safe patch suggestions exist.
+The agent inspects the system, analyzes the sample script, creates safe patch
+suggestions, and emits a reviewable diff when safe suggestions exist.
 
 GPUBoost does not apply patches automatically. Diffs are for human review.
 

@@ -42,6 +42,5 @@ do not run in unit coverage.
 
 ## Known Follow-Ups
 
-- Safe trial workspace support is not implemented yet.
-- Full benchmark agent mode is not implemented yet; the current agent workflow
-  uses the quick benchmark action.
+- Full benchmark agent mode is not implemented yet; no-script agent runs use
+  the quick benchmark action for system-level recommendations.

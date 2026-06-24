@@ -1935,6 +1935,55 @@ def test_cli_compare_json_includes_comparison(tmp_path, capsys) -> None:
     assert "best_fp16_tflops" in metric_names
 
 
+def test_cli_compare_accepts_baseline_file_with_utf8_bom(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(
+        tmp_path,
+        baseline_encoding="utf-8-sig",
+    )
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["comparison"]["status"] == "ok"
+    assert data["comparison"]["overall_verdict"] == "improved"
+    assert captured.err == ""
+
+
+def test_cli_compare_accepts_optimized_file_with_utf8_bom(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(
+        tmp_path,
+        optimized_encoding="utf-8-sig",
+    )
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["comparison"]["status"] == "ok"
+    assert data["comparison"]["overall_verdict"] == "improved"
+    assert captured.err == ""
+
+
+def test_cli_compare_accepts_both_files_with_utf8_bom(tmp_path, capsys) -> None:
+    baseline, optimized = _write_compare_files(
+        tmp_path,
+        baseline_encoding="utf-8-sig",
+        optimized_encoding="utf-8-sig",
+    )
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert data["comparison"]["status"] == "ok"
+    assert data["comparison"]["overall_verdict"] == "improved"
+    assert captured.err == ""
+
+
 def test_cli_compare_missing_file_human_exits_nonzero_no_traceback(
     tmp_path,
     capsys,
@@ -2007,6 +2056,47 @@ def test_cli_compare_invalid_json_json_exits_nonzero_valid_json(
     data = json.loads(captured.out)
 
     assert exit_code == 1
+    assert data["comparison"] is None
+    assert "Invalid JSON:" in data["error"]
+    assert "GPUBoost Comparison" not in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_compare_invalid_bom_json_human_exits_nonzero_no_traceback(
+    tmp_path,
+    capsys,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    optimized = tmp_path / "optimized.json"
+    baseline.write_text("{not json", encoding="utf-8-sig")
+    optimized.write_text(json.dumps(_compare_benchmark(33.0)), encoding="utf-8")
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert "Invalid JSON:" in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_cli_compare_invalid_bom_json_json_exits_nonzero_valid_json(
+    tmp_path,
+    capsys,
+) -> None:
+    baseline = tmp_path / "baseline.json"
+    optimized = tmp_path / "optimized.json"
+    baseline.write_text("{not json", encoding="utf-8-sig")
+    optimized.write_text(json.dumps(_compare_benchmark(33.0)), encoding="utf-8")
+
+    exit_code = cli_main.main(["compare", str(baseline), str(optimized), "--json"])
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    assert exit_code == 1
+    assert data["schema_version"] == "comparison.v1"
+    assert data["command"] == "compare"
     assert data["comparison"] is None
     assert "Invalid JSON:" in data["error"]
     assert "GPUBoost Comparison" not in captured.out
@@ -3465,21 +3555,29 @@ def _write_compare_files(
     tmp_path,
     *,
     include_partial_only: bool = False,
+    baseline_encoding: str = "utf-8",
+    optimized_encoding: str = "utf-8",
 ):
     baseline = tmp_path / "baseline.json"
     optimized = tmp_path / "optimized.json"
     if include_partial_only:
-        baseline.write_text(json.dumps(_compare_benchmark(30.0)), encoding="utf-8")
-        optimized.write_text(json.dumps(_compare_benchmark(33.0)), encoding="utf-8")
+        baseline.write_text(
+            json.dumps(_compare_benchmark(30.0)),
+            encoding=baseline_encoding,
+        )
+        optimized.write_text(
+            json.dumps(_compare_benchmark(33.0)),
+            encoding=optimized_encoding,
+        )
         return baseline, optimized
 
     baseline.write_text(
         json.dumps(_complete_compare_benchmark(best_fp16_tflops=30.0)),
-        encoding="utf-8",
+        encoding=baseline_encoding,
     )
     optimized.write_text(
         json.dumps(_complete_compare_benchmark(best_fp16_tflops=33.0)),
-        encoding="utf-8",
+        encoding=optimized_encoding,
     )
     return baseline, optimized
 

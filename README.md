@@ -132,8 +132,8 @@ python -m gpuboost agent optimize train.py --save-history
 
 Without a script path, the agent inspects the system, runs the quick benchmark,
 builds advisor recommendations, and reports a summary. With a script path, it
-also analyzes the file and includes a reviewable diff when safe patch
-suggestions exist.
+runs the lightweight static analysis and patch-planning path, then includes a
+reviewable diff when safe patch suggestions exist.
 
 JSON output uses schema version `agent.optimize.v1`. `partial` statuses are
 non-fatal and exit with code `0`; `error` exits with code `1`.

@@ -85,7 +85,7 @@ def test_optional_action_failure_returns_partial_and_report_error_section() -> N
 
 
 def test_required_action_failure_returns_error_and_stops_execution() -> None:
-    goal = _make_goal(script_path="train.py")
+    goal = _make_goal(script_path=None)
     plan = plan_for_goal(goal)
     handlers = _fake_handlers()
     handlers[RUN_QUICK_BENCHMARK] = _raise("benchmark failed")
@@ -98,7 +98,6 @@ def test_required_action_failure_returns_error_and_stops_execution() -> None:
     assert result.error == "benchmark failed"
     assert statuses[RUN_QUICK_BENCHMARK] == "failed"
     assert statuses[GENERATE_RECOMMENDATIONS] == "pending"
-    assert statuses[ANALYZE_CODE] == "pending"
     assert report.status == "error"
 
 
