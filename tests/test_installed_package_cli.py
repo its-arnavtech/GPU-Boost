@@ -42,7 +42,7 @@ def _run_cli(
     )
 
 
-def _write_torch_blocker(tmp_path: Path) -> Path:
+def _write_optional_dependency_blocker(tmp_path: Path) -> Path:
     sitecustomize = tmp_path / "sitecustomize.py"
     sitecustomize.write_text(
         "\n".join(
@@ -51,14 +51,18 @@ def _write_torch_blocker(tmp_path: Path) -> Path:
                 "import os",
                 "",
                 "_real_import = builtins.__import__",
-                "_log_path = os.environ.get('GPUBOOST_TORCH_IMPORT_LOG')",
+                "_log_path = os.environ.get('GPUBOOST_OPTIONAL_IMPORT_LOG')",
                 "",
                 "def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):",
-                "    if name == 'torch' or name.startswith('torch.'):",
+                "    blocked = (",
+                "        name == 'torch' or name.startswith('torch.') or",
+                "        name == 'numpy' or name.startswith('numpy.')",
+                "    )",
+                "    if blocked:",
                 "        if _log_path:",
                 "            with open(_log_path, 'a', encoding='utf-8') as handle:",
                 "                handle.write(name + '\\n')",
-                "        raise RuntimeError('torch import blocked by test')",
+                "        raise RuntimeError('optional dependency import blocked by test')",
                 "    return _real_import(name, globals, locals, fromlist, level)",
                 "",
                 "builtins.__import__ = _guarded_import",
@@ -89,26 +93,26 @@ def _doctor_check(payload: dict[str, object], name: str) -> dict[str, object]:
         (["demo", "--help"], "usage: gpuboost demo"),
     ],
 )
-def test_lightweight_cli_commands_do_not_import_torch(
+def test_lightweight_cli_commands_do_not_import_torch_or_numpy(
     tmp_path: Path,
     args: list[str],
     expected_output: str,
 ) -> None:
-    log_path = tmp_path / "torch-imports.log"
-    blocker_dir = _write_torch_blocker(tmp_path)
+    log_path = tmp_path / "optional-imports.log"
+    blocker_dir = _write_optional_dependency_blocker(tmp_path)
 
     completed = _run_cli(
         *args,
         cwd=tmp_path,
         pythonpath_prefix=[blocker_dir],
-        extra_env={"GPUBOOST_TORCH_IMPORT_LOG": str(log_path)},
+        extra_env={"GPUBOOST_OPTIONAL_IMPORT_LOG": str(log_path)},
     )
 
     combined_output = f"{completed.stdout}\n{completed.stderr}"
     assert completed.returncode == 0, combined_output
     assert expected_output in completed.stdout
     assert "Failed to initialize NumPy" not in combined_output
-    assert "torch import blocked by test" not in combined_output
+    assert "optional dependency import blocked by test" not in combined_output
     assert not log_path.exists() or log_path.read_text(encoding="utf-8") == ""
 
 

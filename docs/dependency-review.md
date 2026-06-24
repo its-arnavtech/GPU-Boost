@@ -1,6 +1,6 @@
 # Dependency Review
 
-GPUBoost `0.1.1` keeps a small dependency surface for local inspection,
+GPUBoost `0.1.2` keeps a small dependency surface for local inspection,
 analysis, advisory safety checks, and release validation, with PyTorch moved to
 optional extras for benchmark and model workflows.
 
@@ -17,9 +17,11 @@ Runtime dependencies are declared in `pyproject.toml`:
 
 Optional dependency groups:
 
-- `benchmark`: installs PyTorch for benchmark execution.
-- `model`: installs PyTorch for local model artifact and training commands.
-- `all`: installs the full optional PyTorch-backed feature set.
+- `benchmark`: installs PyTorch and NumPy for benchmark execution.
+- `model`: installs PyTorch and NumPy for local model artifact and training
+  commands.
+- `all`: installs the full optional PyTorch-backed feature set, including
+  PyTorch and NumPy.
 
 The `dev` optional dependency group contains:
 
@@ -38,10 +40,11 @@ CUDA hardware is optional for normal setup and test validation: CPU-only
 systems should skip CUDA-specific benchmark work or report CUDA as unavailable
 instead of failing the whole CLI.
 
-GPUBoost does not directly import NumPy for supported runtime workflows, so
-NumPy is not declared as a standalone runtime dependency. Avoiding eager torch
-imports is enough to prevent PyTorch's optional NumPy warning from appearing in
-lightweight CLI commands.
+GPUBoost does not directly import NumPy for supported lightweight runtime
+workflows, so NumPy is not declared as a standalone base dependency. Instead,
+NumPy is bundled with the Torch-backed optional extras to avoid PyTorch's
+missing-NumPy warning in benchmark, model, and `all` installs while preserving
+the lightweight default install.
 
 Local neural training commands require a working PyTorch install but are not
 part of normal release validation. This review did not train models.

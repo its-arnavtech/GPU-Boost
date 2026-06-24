@@ -68,6 +68,17 @@ install the optional extra too:
 python -m pip install -e ".[dev,all]"
 ```
 
+If you want only part of the Torch-backed workflow, the optional extras are:
+
+```bash
+python -m pip install -e ".[dev,benchmark]"
+python -m pip install -e ".[dev,model]"
+python -m pip install -e ".[dev,all]"
+```
+
+These Torch-backed extras include both PyTorch and NumPy. The base install does
+not include either dependency.
+
 ## Verify Installation
 
 Run the lightweight setup doctor:
@@ -117,8 +128,9 @@ gpuboost info
 GPUBoost can inspect and validate setup without CUDA. PyTorch availability is
 reported by `doctor` and `info`; CUDA availability is reported separately. If
 your environment needs benchmark execution, advisory model artifacts, or a
-specific CPU-only/CUDA-enabled PyTorch build, install the optional `all` extra
-or follow the official PyTorch install selector for your platform, then rerun:
+specific CPU-only/CUDA-enabled PyTorch build, install the optional
+`benchmark`, `model`, or `all` extra as appropriate, or follow the official
+PyTorch install selector for your platform, then rerun:
 
 ```bash
 python -m gpuboost doctor

@@ -10,12 +10,17 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 ```
 
-If you want benchmark execution or local model commands in the same environment,
-add the optional extra:
+If you want benchmark execution or local model commands in the same
+environment, add one of the Torch-backed optional extras:
 
 ```bash
+python -m pip install -e ".[dev,benchmark]"
+python -m pip install -e ".[dev,model]"
 python -m pip install -e ".[dev,all]"
 ```
+
+These extras include both PyTorch and NumPy. The base install keeps both
+dependencies optional.
 
 On Windows PowerShell, activate the environment first if desired:
 

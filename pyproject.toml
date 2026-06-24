@@ -38,12 +38,15 @@ Issues = "https://github.com/its-arnavtech/GPU-Boost/issues"
 [project.optional-dependencies]
 benchmark = [
   "torch",
+  "numpy",
 ]
 model = [
   "torch",
+  "numpy",
 ]
 all = [
   "torch",
+  "numpy",
 ]
 dev = [
   "pytest",

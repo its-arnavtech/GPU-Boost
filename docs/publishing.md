@@ -26,7 +26,7 @@ python -m build
 Check package metadata:
 
 ```bash
-python -m twine check dist/*
+python -m twine check --strict dist/*
 ```
 
 Before any upload, inspect the wheel and sdist contents. Package artifacts must
@@ -54,7 +54,11 @@ install the optional extra:
 python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "gpuboost[all]"
 ```
 
-For `0.1.1`, validate at least these installed-package commands from outside
+`gpuboost[benchmark]`, `gpuboost[model]`, and `gpuboost[all]` should all pull
+in both PyTorch and NumPy, while the base `gpuboost` install should keep both
+dependencies optional.
+
+For `0.1.2`, validate at least these installed-package commands from outside
 the repository:
 
 ```bash
