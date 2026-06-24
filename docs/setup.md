@@ -61,6 +61,13 @@ python -m pip install -e ".[dev]"
 This installs the package in editable mode plus `pytest` and `ruff`. Do not add
 extra dependencies unless a specific local workflow requires them.
 
+If you want the full benchmark and local model workflow in the same environment,
+install the optional extra too:
+
+```bash
+python -m pip install -e ".[dev,all]"
+```
+
 ## Verify Installation
 
 Run the lightweight setup doctor:
@@ -71,9 +78,9 @@ python -m gpuboost doctor --json
 ```
 
 The doctor checks the Python version, core imports, optional PyTorch
-availability, dev tool imports, and generated-artifact ignore patterns. It does
-not require CUDA, run benchmarks, train models, call external APIs, or write
-generated artifacts.
+availability, dev tool imports, and generated-artifact ignore patterns when a
+GPUBoost source repository is available. It does not require CUDA, run
+benchmarks, train models, call external APIs, or write generated artifacts.
 
 Run the standard local checks:
 
@@ -109,8 +116,9 @@ gpuboost info
 
 GPUBoost can inspect and validate setup without CUDA. PyTorch availability is
 reported by `doctor` and `info`; CUDA availability is reported separately. If
-your environment needs a specific CPU-only or CUDA-enabled PyTorch build, follow
-the official PyTorch install selector for your platform, then rerun:
+your environment needs benchmark execution, advisory model artifacts, or a
+specific CPU-only/CUDA-enabled PyTorch build, install the optional `all` extra
+or follow the official PyTorch install selector for your platform, then rerun:
 
 ```bash
 python -m gpuboost doctor

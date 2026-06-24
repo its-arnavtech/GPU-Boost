@@ -51,9 +51,15 @@ def test_pyproject_metadata_is_reasonable_for_dev_install() -> None:
     if "version" in project.get("dynamic", []):
         assert pyproject["tool"]["hatch"]["version"]["path"] == "gpuboost/__init__.py"
     assert project["requires-python"] == ">=3.9"
-    assert "torch" in project["dependencies"]
+    assert "torch" not in project["dependencies"]
     assert "psutil" in project["dependencies"]
     assert "rich" in project["dependencies"]
+    assert "benchmark" in project["optional-dependencies"]
+    assert "model" in project["optional-dependencies"]
+    assert "all" in project["optional-dependencies"]
+    assert "torch" in project["optional-dependencies"]["benchmark"]
+    assert "torch" in project["optional-dependencies"]["model"]
+    assert "torch" in project["optional-dependencies"]["all"]
     assert "dev" in project["optional-dependencies"]
     assert "pytest" in project["optional-dependencies"]["dev"]
     assert "ruff" in project["optional-dependencies"]["dev"]

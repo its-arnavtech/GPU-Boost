@@ -26,7 +26,6 @@ classifiers = [
   "Topic :: Utilities",
 ]
 dependencies = [
-  "torch",
   "psutil",
   "nvidia-ml-py",
   "rich",
@@ -37,6 +36,15 @@ Repository = "https://github.com/its-arnavtech/GPU-Boost"
 Issues = "https://github.com/its-arnavtech/GPU-Boost/issues"
 
 [project.optional-dependencies]
+benchmark = [
+  "torch",
+]
+model = [
+  "torch",
+]
+all = [
+  "torch",
+]
 dev = [
   "pytest",
   "ruff",

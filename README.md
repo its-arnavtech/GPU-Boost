@@ -9,7 +9,7 @@ small real-world-style examples.
 GPUBoost is not affiliated with NVIDIA. It is designed for evidence-based local
 optimization work, not autonomous production patching.
 
-Current checkpoint version: `0.1.0`. The package version source is
+Current checkpoint version: `0.1.1`. The package version source is
 `gpuboost/__init__.py`; `pyproject.toml` reads it through Hatch dynamic
 versioning.
 
@@ -65,6 +65,7 @@ for the shortest path.
 ```bash
 python -m venv .venv
 python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,all]"  # optional: benchmark/model extras
 python -m gpuboost doctor
 python -m gpuboost --version
 python -m gpuboost --help
@@ -81,6 +82,11 @@ On Windows PowerShell, activate the environment first if desired:
 
 The sample file is intentionally named `examples/bad_train_sample.txt` so
 formatters and linters do not treat it as project Python code.
+
+The default install covers inspection, setup checks, static analysis, compare,
+history, demo discovery, and advisory safety checks. Install the optional
+`all` extra (or PyTorch directly) when you want benchmark execution or local
+model training features.
 
 ## Core Workflows
 

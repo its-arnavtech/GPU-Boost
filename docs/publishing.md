@@ -47,6 +47,26 @@ Install from TestPyPI in a clean environment:
 python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ gpuboost
 ```
 
+If you want benchmark or local model commands in that validation environment,
+install the optional extra:
+
+```bash
+python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ "gpuboost[all]"
+```
+
+For `0.1.1`, validate at least these installed-package commands from outside
+the repository:
+
+```bash
+python -m gpuboost --version
+python -m gpuboost --help
+python -m gpuboost doctor --json
+python -m gpuboost model safety-check --json
+python -m gpuboost compare --help
+python -m gpuboost agent --help
+python -m gpuboost demo --help
+```
+
 TestPyPI is temporary and may be incomplete or ephemeral. Treat it as a
 validation environment, not a durable release archive.
 

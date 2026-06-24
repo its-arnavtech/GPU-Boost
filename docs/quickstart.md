@@ -10,6 +10,13 @@ python -m venv .venv
 python -m pip install -e ".[dev]"
 ```
 
+If you want benchmark execution or local model commands in the same environment,
+add the optional extra:
+
+```bash
+python -m pip install -e ".[dev,all]"
+```
+
 On Windows PowerShell, activate the environment first if desired:
 
 ```powershell
@@ -29,7 +36,9 @@ python -m gpuboost agent optimize examples/bad_train_sample.txt --json
 ```
 
 This runs the deterministic optimize workflow and emits JSON. Patch suggestions
-are review-only; GPUBoost does not apply patches automatically.
+are review-only; GPUBoost does not apply patches automatically. Without the
+optional PyTorch extra, benchmark-backed steps may report clean warnings or
+partial results instead of crashing.
 
 ## Run The Trial Example
 
@@ -47,9 +56,9 @@ file is not modified.
 python -m gpuboost model safety-check --json
 ```
 
-The safety check verifies key guardrails such as ignored generated artifacts,
-ignored raw data, ignored model-weight extensions, and disabled model patch
-application.
+The safety check verifies key guardrails such as disabled model patch
+application, and it reports repository-only artifact-policy checks when a
+GPUBoost source repository is available.
 
 ## Optional Next Steps
 

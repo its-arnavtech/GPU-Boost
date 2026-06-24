@@ -29,11 +29,11 @@ def test_version_metadata_uses_package_version_source() -> None:
     version_match = re.search(r'__version__ = "([^"]+)"', init_text)
 
     assert version_match is not None
-    assert version_match.group(1) == "0.1.0"
+    assert version_match.group(1) == "0.1.1"
     assert gpuboost.__version__ == version_match.group(1)
     assert 'dynamic = ["version"]' in pyproject_text
     assert 'path = "gpuboost/__init__.py"' in pyproject_text
-    assert 'version = "0.1.0"' not in pyproject_text
+    assert 'version = "0.1.1"' not in pyproject_text
 
 
 def test_release_notes_exist_and_cover_phase_15c_topics() -> None:

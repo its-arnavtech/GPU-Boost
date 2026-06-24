@@ -684,7 +684,7 @@ def render_model_safety_check_human(result: dict[str, object]) -> str:
         "provider_patch_application_allowed_false",
         "no_default_artifact_path_required",
     ):
-        lines.append(f"- {key}: {_format_yes_no(result.get(key) is True)}")
+        lines.append(f"- {key}: {_format_yes_no_or_na(result.get(key))}")
     warnings = result.get("warnings")
     if isinstance(warnings, list) and warnings:
         lines.extend(["", "Warnings:"])
@@ -1481,6 +1481,12 @@ def _format_trial_output(trial: dict[str, object] | None) -> str:
 
 def _format_yes_no(value: bool) -> str:
     return "yes" if value else "no"
+
+
+def _format_yes_no_or_na(value: object) -> str:
+    if value is None:
+        return "n/a"
+    return _format_yes_no(value is True)
 
 
 def _format_optional_bool(value: bool | None) -> str:

@@ -5,9 +5,8 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from gpuboost.model.neural import MLPClassifier, select_torch_device, torch, torch_available
 from gpuboost.schemas.training import (
     ModelArtifactManifest,
     NeuralSearchResult,
@@ -16,6 +15,9 @@ from gpuboost.schemas.training import (
     TrainingFeatureSpec,
     create_timestamp,
 )
+
+if TYPE_CHECKING:
+    from gpuboost.model.neural import MLPClassifier
 
 DEFAULT_ARTIFACT_DIR = "data/gpuboost/generated/model_training/artifacts"
 MANIFEST_SCHEMA_VERSION = "training.model_artifact.v1"
@@ -59,7 +61,8 @@ def save_neural_model_artifact(
 ) -> ModelArtifactManifest:
     """Save a local neural model artifact without raw training rows."""
 
-    if not torch_available() or torch is None:
+    neural = _load_neural_module()
+    if not neural.torch_available() or neural.torch is None:
         raise RuntimeError("PyTorch is unavailable; cannot save neural artifact.")
 
     artifact_dir = Path(create_model_artifact_dir(output_dir, artifact_name))
@@ -70,7 +73,7 @@ def save_neural_model_artifact(
     evaluation_report_file = artifact_dir / "evaluation_report.json"
     manifest_file = artifact_dir / "manifest.json"
 
-    torch.save(model.state_dict(), model_file)
+    neural.torch.save(model.state_dict(), model_file)
     _write_json(feature_spec_file, feature_spec.to_dict())
     _write_json(label_mapping_file, dict(sorted(label_to_index.items())))
     _write_json(
@@ -141,7 +144,8 @@ def load_neural_model_artifact(
 ) -> tuple[MLPClassifier, TrainingFeatureSpec, dict[str, int], ModelArtifactManifest]:
     """Load a local neural model artifact without training."""
 
-    if not torch_available() or torch is None:
+    neural = _load_neural_module()
+    if not neural.torch_available() or neural.torch is None:
         raise RuntimeError("PyTorch is unavailable; cannot load neural artifact.")
     manifest = load_model_artifact_manifest(manifest_path)
     directory = Path(manifest_path).parent
@@ -150,14 +154,14 @@ def load_neural_model_artifact(
     config_payload = _load_json(directory / manifest.training_config_file)
     config_data = config_payload.get("config", config_payload)
     config = NeuralTrainingConfig(**config_data)
-    selected_device = select_torch_device(device)
-    model = MLPClassifier(
+    selected_device = neural.select_torch_device(device)
+    model = neural.MLPClassifier(
         input_size=manifest.input_size,
         output_size=manifest.output_size,
         hidden_sizes=list(config.hidden_sizes),
         dropout=config.dropout,
     ).to(selected_device)
-    state = torch.load(
+    state = neural.torch.load(
         directory / manifest.model_file,
         map_location=selected_device,
         weights_only=True,
@@ -357,7 +361,8 @@ def _attach_normalization(
     config_payload: dict[str, Any],
     selected_device: str,
 ) -> None:
-    if torch is None:
+    neural = _load_neural_module()
+    if neural.torch is None:
         return
     normalization = config_payload.get("normalization")
     if not isinstance(normalization, dict):
@@ -368,14 +373,20 @@ def _attach_normalization(
         setattr(
             model,
             "_gpuboost_feature_mean",
-            torch.tensor([mean], dtype=torch.float32),
+            neural.torch.tensor([mean], dtype=neural.torch.float32),
         )
         setattr(
             model,
             "_gpuboost_feature_std",
-            torch.tensor([std], dtype=torch.float32),
+            neural.torch.tensor([std], dtype=neural.torch.float32),
         )
     setattr(model, "_gpuboost_device", selected_device)
+
+
+def _load_neural_module():
+    from gpuboost.model import neural as neural_module
+
+    return neural_module
 
 
 def _labels_from_mapping(label_to_index: dict[str, int]) -> list[str]:

@@ -1,5 +1,27 @@
 # GPUBoost Release Notes
 
+## 0.1.1 Maintenance Release
+
+GPUBoost `0.1.1` is the follow-up release prepared after TestPyPI validation of
+`0.1.0` uncovered installed-package issues. This update keeps the same product
+scope while fixing lightweight CLI import behavior, installed-package doctor
+and model safety-check behavior outside a source checkout, and the package's
+dependency story around optional PyTorch-backed workflows.
+
+- Lightweight commands such as `python -m gpuboost --help`,
+  `python -m gpuboost --version`, `python -m gpuboost compare --help`,
+  `python -m gpuboost agent --help`, and `python -m gpuboost demo --help` no
+  longer eagerly import PyTorch.
+- `doctor` now separates installed-runtime checks from repository-only
+  `.gitignore` policy checks and supports `--repo-root` for explicit source
+  validation.
+- `model safety-check` now reports package/runtime guardrails outside the
+  repository and marks repository-only checks as skipped or warning instead of
+  failing falsely.
+- PyTorch moved behind optional extras for benchmark and model workflows; the
+  default install remains useful for inspection, analysis, compare, history,
+  demo discovery, and safety validation.
+
 ## 0.1.0 Checkpoint
 
 GPUBoost `0.1.0` is a clean local-first release checkpoint after Phases 11-15.

@@ -38,12 +38,6 @@ from gpuboost.model.artifacts import (
 )
 from gpuboost.model.feature_encoding import build_encoded_training_dataset
 from gpuboost.model.neural_reports import write_neural_training_reports
-from gpuboost.model.neural_training import (
-    run_neural_config_search,
-    run_neural_hyperparameter_search,
-    train_best_neural_model_for_artifact,
-    train_neural_model_for_artifact_config,
-)
 from gpuboost.model.provider import TrainedLocalModelProvider
 from gpuboost.model.safety import (
     verify_model_workflow_safety,
@@ -56,6 +50,7 @@ from gpuboost.model.training_reports import (
     DEFAULT_BASELINE_REPORT_DIR,
     write_baseline_comparison_reports,
 )
+from gpuboost.repository import resolve_repository_context
 from gpuboost.schemas.model import ModelFeatureSet, ModelInput
 from gpuboost.schemas.training import NeuralSearchResult, NeuralTrainingConfig
 from gpuboost.utils.formatting import format_benchmark_suite, format_profile
@@ -117,6 +112,36 @@ SETUP_DOCTOR_SCHEMA_VERSION = "setup.doctor.v1"
 MIN_PYTHON_VERSION = (3, 9)
 
 
+def run_neural_config_search(*args, **kwargs):
+    from gpuboost.model.neural_training import run_neural_config_search as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def run_neural_hyperparameter_search(*args, **kwargs):
+    from gpuboost.model.neural_training import (
+        run_neural_hyperparameter_search as implementation,
+    )
+
+    return implementation(*args, **kwargs)
+
+
+def train_best_neural_model_for_artifact(*args, **kwargs):
+    from gpuboost.model.neural_training import (
+        train_best_neural_model_for_artifact as implementation,
+    )
+
+    return implementation(*args, **kwargs)
+
+
+def train_neural_model_for_artifact_config(*args, **kwargs):
+    from gpuboost.model.neural_training import (
+        train_neural_model_for_artifact_config as implementation,
+    )
+
+    return implementation(*args, **kwargs)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the GPUBoost argument parser."""
 
@@ -143,6 +168,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--json",
         action="store_true",
         help="Print machine-readable JSON output.",
+    )
+    doctor_parser.add_argument(
+        "--repo-root",
+        help="Optional GPUBoost source repository root for repository-only checks.",
     )
 
     info_parser = subparsers.add_parser(
@@ -600,6 +629,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print machine-readable JSON output.",
     )
+    safety_check_parser.add_argument(
+        "--repo-root",
+        help="Optional GPUBoost source repository root for repository-only checks.",
+    )
 
     demo_parser = subparsers.add_parser(
         "demo",
@@ -669,7 +702,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "doctor":
-        result = build_setup_doctor_report()
+        result = build_setup_doctor_report(repo_root=args.repo_root)
         if args.json:
             print(json.dumps(result, indent=2, sort_keys=True))
         else:
@@ -947,9 +980,10 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def build_setup_doctor_report() -> dict[str, object]:
+def build_setup_doctor_report(repo_root: str | None = None) -> dict[str, object]:
     """Return lightweight setup checks for local development."""
 
+    repository = resolve_repository_context(repo_root)
     checks = [
         _check_python_version(),
         _check_import("gpuboost", required=True),
@@ -959,16 +993,21 @@ def build_setup_doctor_report() -> dict[str, object]:
         _check_import("pytest", required=False),
         _check_import("ruff", required=False),
         _check_torch_availability(),
-        _check_gitignore_safety(),
+        _check_gitignore_safety(repo_root=repo_root),
     ]
     failed = [check for check in checks if check["status"] == "failed"]
-    warnings = [check for check in checks if check["status"] == "warning"]
+    warnings = [
+        check for check in checks if check["status"] in {"warning", "skipped"}
+    ]
     status = "error" if failed else "warning" if warnings else "ok"
     return {
         "schema_version": SETUP_DOCTOR_SCHEMA_VERSION,
         "status": status,
         "python_version": sys.version.split()[0],
         "cwd": str(Path.cwd()),
+        "repo_root": str(repository.root) if repository.root is not None else None,
+        "repo_root_status": repository.status,
+        "repo_root_message": repository.message,
         "checks": checks,
         "cuda_required": False,
     }
@@ -1101,8 +1140,19 @@ def _check_torch_availability() -> dict[str, object]:
     }
 
 
-def _check_gitignore_safety() -> dict[str, object]:
-    gitignore = _read_optional_text(Path(".gitignore"))
+def _check_gitignore_safety(repo_root: str | None = None) -> dict[str, object]:
+    repository = resolve_repository_context(repo_root)
+    if repository.root is None:
+        return {
+            "name": "gitignore_generated_artifacts",
+            "status": "warning" if repository.status == "invalid" else "skipped",
+            "required": False,
+            "applicable": False,
+            "repo_root": None,
+            "message": f"{repository.message} Repository artifact-policy checks skipped.",
+        }
+
+    gitignore = _read_optional_text(repository.root / ".gitignore")
     expected_patterns = [
         "data/gpuboost/generated/",
         "data/gpuboost/raw/",
@@ -1126,6 +1176,8 @@ def _check_gitignore_safety() -> dict[str, object]:
         "name": "gitignore_generated_artifacts",
         "status": "failed" if missing else "passed",
         "required": True,
+        "applicable": True,
+        "repo_root": str(repository.root),
         "message": "All generated data, model artifact, and local DB patterns present."
         if not missing
         else f"Missing .gitignore patterns: {', '.join(missing)}.",
@@ -1496,7 +1548,7 @@ def _run_model_predict_artifact(args: argparse.Namespace) -> int:
 
 
 def _run_model_safety_check(args: argparse.Namespace) -> int:
-    result = verify_model_workflow_safety()
+    result = verify_model_workflow_safety(repo_root=args.repo_root)
     if args.json:
         print(
             json.dumps(

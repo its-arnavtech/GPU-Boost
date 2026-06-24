@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 from gpuboost.model.artifacts import load_neural_model_artifact
 from gpuboost.model.feature_encoding import encode_feature_dicts
-from gpuboost.model.neural import torch, torch_available
 
 if TYPE_CHECKING:
     from gpuboost.schemas.model import (
@@ -273,19 +272,27 @@ class TrainedLocalModelProvider(BaseModelProvider):
         self,
         encoded: list[float],
     ) -> tuple[str, float, dict[str, float]]:
-        if not torch_available() or torch is None:
+        neural = _load_neural_module()
+        if not neural.torch_available() or neural.torch is None:
             raise RuntimeError("PyTorch is unavailable.")
         if self._model is None:
             raise RuntimeError("Model artifact is not loaded.")
         device = getattr(self._model, "_gpuboost_device", "cpu")
-        tensor = torch.tensor([encoded], dtype=torch.float32, device=device)
+        tensor = neural.torch.tensor(
+            [encoded],
+            dtype=neural.torch.float32,
+            device=device,
+        )
         mean = getattr(self._model, "_gpuboost_feature_mean", None)
         std = getattr(self._model, "_gpuboost_feature_std", None)
         if mean is not None and std is not None:
             tensor = (tensor - mean.to(device)) / std.to(device)
         self._model.eval()
-        with torch.no_grad():
-            probabilities_tensor = torch.softmax(self._model(tensor), dim=1)[0].cpu()
+        with neural.torch.no_grad():
+            probabilities_tensor = neural.torch.softmax(
+                self._model(tensor),
+                dim=1,
+            )[0].cpu()
         probabilities = [
             float(value) for value in probabilities_tensor.tolist()
         ]
@@ -373,3 +380,9 @@ def _labels_from_mapping(label_to_index: dict[str, int]) -> list[str]:
         label
         for label, _ in sorted(label_to_index.items(), key=lambda item: item[1])
     ]
+
+
+def _load_neural_module():
+    from gpuboost.model import neural as neural_module
+
+    return neural_module
