@@ -343,13 +343,13 @@ Security posture:
 - `model safety-check` returned `status: ok` and
   `patch_application_allowed: false`.
 - `security/audit.py` and tests check structured JSON leak patterns.
-- CI defines Bandit and pip-audit security jobs, but they were not run locally
-  in this audit because installing/downloading additional tooling is outside
-  the constraints.
+- CI defines Bandit and pip-audit security jobs. Remediation verified Bandit
+  locally and changed pip-audit to audit the project dependency graph rather
+  than unrelated packages installed in the runner environment.
 
 Local environment notes:
 
-- Git emitted permission warnings for `C:\Users\Arnav/.config/git/ignore`.
+- Git emitted permission warnings for a user-home git ignore file.
 - Pytest cache writes under `.pytest_cache` are denied in this workspace. Tests
   still passed.
 
@@ -382,8 +382,7 @@ Overall implementation score: **90%**
 - Core product is strong, tests pass, docs are substantial, and package
   structure is coherent.
 - Deductions: experimental ML quality, stale historical docs, import
-  latency/eager imports, CI security job not locally verified, and TestPyPI
-  roundtrip not complete.
+  latency/eager imports, and TestPyPI roundtrip not complete.
 
 Core product score: **93%**
 
@@ -405,8 +404,7 @@ Release score: **92%**
 
 - Ruff/tests pass, docs/security/repo hygiene are strong, metadata is ready,
   fresh artifacts pass `twine check`, and clean wheel install smoke passed.
-- Deductions: no TestPyPI roundtrip, local CI security jobs unverified, stale
-  phase doc counts.
+- Deductions: no TestPyPI roundtrip and stale phase doc counts.
 
 Real-world usability score: **80%**
 
@@ -433,7 +431,7 @@ Resolved:
 | Severity | File/module | Evidence | Recommended fix | Effort |
 |---|---|---|---|---|
 | P1 | Publishing workflow | TestPyPI upload and install roundtrip were not performed | Upload fresh checked artifacts to TestPyPI, install from TestPyPI in clean env, run CLI smoke | small |
-| P1 | CI security job | `.github/workflows/ci.yml` defines Bandit and pip-audit, but local audit did not run them | Let GitHub CI run or run security job in an approved environment; triage dependency findings | small |
+| P1 | CI security job | `.github/workflows/ci.yml` defined Bandit and pip-audit, but `pip-audit` originally audited the whole environment and could fail on unrelated runner packages | Run `pip-audit . --progress-spinner off` so CI audits GPUBoost's project dependency graph | small |
 
 Resolved or already satisfied:
 
