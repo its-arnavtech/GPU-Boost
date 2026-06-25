@@ -1,19 +1,7 @@
-# Python
+# Python bytecode and caches
 __pycache__/
 *.py[cod]
 *$py.class
-.pytest_cache/
-.pytest-tmp/
-pytest_tmp/
-pytest-cache-files-*/
-.ruff_cache/
-.mypy_cache/
-.pyre/
-.tox/
-.nox/
-.coverage
-coverage.xml
-htmlcov/
 .ipynb_checkpoints/
 
 # Virtual environments
@@ -23,7 +11,24 @@ env/
 ENV/
 .conda/
 
-# Build artifacts
+# Test and coverage outputs
+.pytest_cache/
+.pytest-tmp/
+pytest_tmp/
+pytest-cache-files-*/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Lint and type-check caches
+.ruff_cache/
+.mypy_cache/
+.pyre/
+.pyright/
+
+# Packaging and build outputs
 build/
 dist/
 *.egg-info/
@@ -32,22 +37,37 @@ dist/
 wheelhouse/
 site/
 
-# Logs
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+desktop.ini
+$RECYCLE.BIN/
+
+# Logs, temp, and runtime files
 *.log
 logs/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Local GPUBoost output
-reports/
-*.report.json
-*.report.html
-gpuboost-report.*
-.gpuboost/
+*.tmp
+*.bak
+*.pid
+*.cache
 *.prof
 *.profile
 *.trace
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+tmp/
+temp/
+run-output/
+
+# Local databases and history stores
 *.sqlite
 *.sqlite3
 *.db
@@ -72,41 +92,14 @@ token.json
 *.pfx
 *.crt
 *.cer
+*.jks
 id_rsa
 id_dsa
 id_ecdsa
 id_ed25519
 
-# OS files
-.DS_Store
-Thumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# Editors
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Package manager caches
-.pip/
-.uv-cache/
-.cache/
-
-# Large local ML artifacts
-checkpoints/
-models/
-weights/
-*.pt
-*.pth
-*.ckpt
-*.pkl
-*.joblib
-*.safetensors
-*.onnx
-
-# GPUBoost local data intake
+# GPUBoost raw/generated datasets
+# Keep safe manifests and fixtures tracked; ignore only local intake/output trees.
 data/gpuboost/raw/
 data/gpuboost/generated/
 data/gpuboost/experiments/*/
@@ -114,6 +107,45 @@ data/gpuboost/experiments/grid_pairs.json
 data/gpuboost/experiments/grid_runner_manifest.json
 !data/gpuboost/experiments/pairs.json
 
-# Temp directories
-tmp/
-temp/
+# GPUBoost model artifacts and checkpoints
+checkpoints/
+models/
+weights/
+artifacts/
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+*.joblib
+*.safetensors
+*.onnx
+
+# Benchmark, demo, and report outputs
+reports/
+*.report.json
+*.report.html
+gpuboost-report.*
+
+# GPUBoost agentic optimization workspace: runs, backups, and approvals.
+# The single directory rule scopes all generated run metadata and backups
+# (.gpuboost/runs/, .gpuboost/backups/, .gpuboost/approvals/).
+.gpuboost/
+
+# Local publishing credentials and config
+.pypirc
+.pypirc.toml
+.twine/
+.twine.json
+
+# Package manager caches
+.pip/
+.uv-cache/
+.cache/
+
+# Temporary validation environments
+audit-wheel-venv-*/
+ci-venv/
+ci-nodeps-wheel-venv/
+pkg-remediation-venv/
+pkg-smoke-venv/

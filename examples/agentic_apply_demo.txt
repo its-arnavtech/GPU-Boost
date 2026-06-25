@@ -1,0 +1,8 @@
+import torch
+from torch.utils.data import DataLoader
+
+loader = DataLoader(dataset, batch_size=32, num_workers=0)
+for inputs, targets in loader:
+    inputs = inputs.to("cuda")
+    targets = targets.to("cuda")
+    outputs = model(inputs)

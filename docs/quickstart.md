@@ -41,9 +41,9 @@ python -m gpuboost agent optimize examples/bad_train_sample.txt --json
 ```
 
 This runs the deterministic optimize workflow and emits JSON. Patch suggestions
-are review-only; GPUBoost does not apply patches automatically. Without the
-optional PyTorch extra, benchmark-backed steps may report clean warnings or
-partial results instead of crashing.
+are review-only by default; GPUBoost does not apply patches automatically.
+Without the optional PyTorch extra, benchmark-backed steps may report clean
+warnings or partial results instead of crashing.
 
 ## Run The Trial Example
 
@@ -54,6 +54,26 @@ python -m gpuboost agent optimize examples/bad_train_sample.txt --trial --json
 Trial mode copies the sample into a temporary workspace, applies generated
 suggestions only to the copy, and syntax-checks the copied file. The original
 file is not modified.
+
+## Optional Human-Approved Apply
+
+This human-approved apply lifecycle is available on the main branch and planned
+for GPUBoost `0.2.0`; it is not part of public PyPI `0.1.2`, which stays
+review-first.
+
+For a real script you control, prepare an approval-gated run before any source
+file is changed:
+
+```bash
+python -m gpuboost agent optimize train.py --prepare
+python -m gpuboost agent show-plan <run_id>
+python -m gpuboost agent approve <run_id> --confirm "APPLY <plan>"
+python -m gpuboost agent apply <run_id>
+```
+
+The approval is bound to the immutable plan digest and original file hash.
+`agent apply` creates a backup and rolls back automatically if validation or
+acceptance checks fail. No unapproved patch application is allowed.
 
 ## Run The Safety Check
 

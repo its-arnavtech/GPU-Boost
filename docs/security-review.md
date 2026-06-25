@@ -46,6 +46,21 @@ Saved model artifacts are local/generated files and must be explicitly selected
 for advisory prediction. Trained artifact metadata is expected to expose
 `patch_application_allowed=false`.
 
+## Human-Approved Agentic Apply Boundary
+
+GPUBoost supports human-approved agentic optimization for deterministic patch
+plans. It does not support unapproved patch application. `agent optimize
+--prepare` is non-mutating and writes an ignored local run record. `agent
+approve` requires an exact confirmation phrase and binds approval to the run
+ID, plan ID, immutable plan digest, approved action IDs, approver timestamp,
+and original target file hash. `agent apply` repeats the hash and digest checks,
+creates a backup, validates the modified source, and automatically restores the
+backup if validation or acceptance policy fails.
+
+User-provided validation, test, and benchmark commands are explicit opt-in and
+execute local code. Benchmark threshold policies require user-provided JSON
+metrics such as `speedup_percent` or `regression_percent`.
+
 ## Raw Output Redaction Policy
 
 CLI JSON redacts raw diffs and trial stdout/stderr by default for agent
@@ -57,7 +72,7 @@ tests treat redacted output as the safe default.
 ## Known Remaining Risks
 
 - User-provided test commands can execute arbitrary local code when explicitly
-  passed with trial mode.
+  passed with trial mode or the approved apply workflow.
 - Benchmark results and model signals can be misleading if interpreted without
   hardware, driver, thermal, and workload context.
 - Redaction is best effort for summaries and structured artifacts; user-supplied

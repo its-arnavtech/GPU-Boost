@@ -10,7 +10,9 @@ gpuboost agent optimize train.py --trial --test "pytest"
 
 Trial mode creates a temporary workspace, copies the target file into it, and
 applies generated patches only to the copy. The original source file is never
-modified, and GPUBoost still has no `--apply` command.
+modified by trial mode. Original-file application is available only through the
+separate human-approved agentic lifecycle: `agent optimize --prepare`, `agent
+approve`, and `agent apply`.
 
 Syntax validation uses Python compilation only. It does not import or execute
 the target script.

@@ -17,6 +17,12 @@ def test_verify_model_workflow_safety_returns_ok_or_warning() -> None:
     assert result["artifact_extensions_ignored"] is True
     assert result["raw_data_ignored"] is True
     assert result["provider_patch_application_allowed_false"] is True
+    assert result["unapproved_patch_application_allowed"] is False
+    assert result["approved_deterministic_patch_application_allowed"] is True
+    assert result["approval_required"] is True
+    assert result["approval_digest_required"] is True
+    assert result["original_file_hash_required"] is True
+    assert result["automatic_rollback_enabled"] is True
 
 
 def test_no_generated_artifacts_or_model_weights_are_tracked() -> None:

@@ -1,317 +1,317 @@
-# GPUBoost
+# GPUBoost 0.1.2
 
-GPUBoost is a local-first NVIDIA GPU performance assistant for CUDA and
-PyTorch projects. It inspects hardware, runs lightweight benchmarks, performs
-static analysis, suggests reviewable patches, tests patches in temporary trial
-workspaces, prepares dataset/model artifacts, and demonstrates the workflow on
-small real-world-style examples.
+GPUBoost is a local-first Python CLI for inspecting NVIDIA GPU environments,
+running bounded synthetic benchmarks, analyzing PyTorch scripts, and preparing
+reviewable optimization advice.
 
-GPUBoost is not affiliated with NVIDIA. It is designed for evidence-based local
-optimization work, not autonomous production patching.
+> **Release status.** The current public PyPI release is `0.1.2`, the prior
+> review-first release: it proposes and displays diffs but never modifies your
+> source. Human-approved agentic optimization — the
+> `agent optimize --prepare`/`approve`/`apply`/`rollback` lifecycle described below — is
+> available on the main branch and planned for GPUBoost `0.2.0`. It is **not**
+> part of public PyPI `0.1.2`.
 
-Current checkpoint version: `0.1.2`. The package version source is
-`gpuboost/__init__.py`; `pyproject.toml` reads it through Hatch dynamic
-versioning.
-
-## What GPUBoost Is
-
-- A Python CLI for GPU/system inspection, synthetic benchmarks, static PyTorch
-  analysis, optimization advice, and review-only patch suggestions.
-- A deterministic agent workflow that can inspect, benchmark, analyze code,
-  plan changes, generate diffs, and optionally test those diffs in a copied
-  trial workspace.
-- A local dataset and model workflow for safe structured features, readiness
-  checks, local training experiments, and advisory-only model artifacts.
-- A demo suite for validating the workflow against lightweight CNN,
-  transformer, and DataLoader examples using synthetic data.
+- PyPI: <https://pypi.org/project/gpuboost/>
+- Repository: <https://github.com/its-arnavtech/GPU-Boost>
+- License: [MIT License](LICENSE); see [LICENSE](LICENSE)
+- Maturity: pre-alpha local tooling. Useful today, but performance results are
+  hardware and workload specific.
 
 ## What It Does
 
-- Detects NVIDIA GPU, CUDA, PyTorch, cuDNN, Tensor Core, CPU, RAM, OS, and
-  Python environment details.
-- Runs CPU-safe benchmark commands, including matrix multiplication, AMP,
-  batch-size sweeps, and DataLoader behavior.
-- Produces rule-based recommendations from benchmark output.
-- Statically analyzes PyTorch scripts without importing or executing user code.
-- Generates unified diffs for selected low-risk changes, such as AMP,
-  DataLoader, inference-mode, and cuDNN benchmark suggestions.
-- Creates trial workspaces where generated diffs can be applied to a temporary
-  copy of a script and syntax-checked.
-- Stores local run history when explicitly requested.
-- Provides local model artifact commands for evaluation, packaging, checking,
-  and advisory prediction.
+- Reports Python, OS, CPU, RAM, NVIDIA GPU, CUDA, cuDNN, and PyTorch details.
+- Runs quick synthetic benchmark suites for matrix multiplication, mixed
+  precision, batch-size sweeps, and DataLoader behavior.
+- Produces deterministic rule-based recommendations from benchmark metrics.
+- Statically analyzes PyTorch-like source files without importing or executing
+  them.
+- Builds reviewable patch plans and unified diffs for conservative suggestions.
+- Validates generated patch plans in temporary trial workspaces when requested.
+- Prepares approval-gated agentic optimization runs that can apply selected
+  deterministic edits only after explicit human approval (main branch; planned
+  for GPUBoost 0.2.0, not in public 0.1.2).
+- Compares supported GPUBoost benchmark JSON files.
+- Stores local history only when explicitly requested.
+- Provides local dataset, model artifact, and advisory model workflows.
+- Describes synthetic real-world demo workloads that use local data only.
 
 ## What It Does Not Do
 
-- No guaranteed speedup. Results depend on hardware, drivers, thermals, power
-  mode, workload shape, PyTorch/CUDA versions, and background load.
-- No production autonomous patching and no `--apply` command for original
-  source files.
-- No automatic patch application. Patch suggestions are review-only unless
-  trial mode applies them to a temporary copy.
-- No LLM fine-tuning and no external LLM API calls.
-- No external API dependency for normal local use, tests, or release checks.
-- No model authority over deterministic checks. Model predictions are
-  advisory-only model signals.
-- No automatic benchmark-command before/after execution in the agent.
-- No commitment of raw/generated data or model weights.
-- No CUDA requirement for normal tests.
+- No automatic patch application to original source files; no unapproved patch
+  application is allowed.
+- Approved source edits require an immutable plan digest, the original file
+  hash, and an explicit human confirmation phrase.
+- No guaranteed speedups.
+- Model output is advisory; it cannot apply patches or approve changes.
+- Deterministic checks remain authoritative.
+- `patch_application_allowed=false` is part of the model safety contract.
+- GPU/CUDA is optional for core workflows such as help, doctor, static analysis,
+  compare, history, demo discovery, and safety checks.
+- It does not call external APIs, upload source, download datasets, train models,
+  or run heavy benchmark grids during normal use.
+
+## Installation
+
+Base install:
+
+```powershell
+pip install gpuboost
+```
+
+Full ML/benchmark extras:
+
+```powershell
+pip install "gpuboost[all]"
+```
+
+Targeted extras:
+
+```powershell
+pip install "gpuboost[benchmark]"
+pip install "gpuboost[model]"
+```
+
+The base package depends on `psutil`, `nvidia-ml-py`, and `rich`. The
+`benchmark`, `model`, and `all` extras add PyTorch and NumPy.
 
 ## Quickstart
 
-See [Setup](docs/setup.md) for full install notes and [Quickstart](docs/quickstart.md)
-for the shortest path.
-
-```bash
-python -m venv .venv
-python -m pip install -e ".[dev]"
-python -m pip install -e ".[dev,benchmark]"  # optional: benchmark commands
-python -m pip install -e ".[dev,model]"      # optional: local model commands
-python -m pip install -e ".[dev,all]"        # optional: full Torch-backed set
-python -m gpuboost doctor
-python -m gpuboost --version
-python -m gpuboost --help
-python -m gpuboost agent optimize examples/bad_train_sample.txt --json
-python -m gpuboost agent optimize examples/bad_train_sample.txt --trial --json
-python -m gpuboost model safety-check --json
-```
-
-On Windows PowerShell, activate the environment first if desired:
+These commands were validated during the post-release audit:
 
 ```powershell
-.\.venv\Scripts\activate
+python -m gpuboost --version
+python -m gpuboost doctor --json
+python -m gpuboost info --json
+python -m gpuboost analyze examples\bad_train_sample.txt --json
+python -m gpuboost agent optimize examples\bad_train_sample.txt --json
+python -m gpuboost agent optimize examples\bad_train_sample.txt --trial --json
+python -m gpuboost benchmark --quick --json --recommend
+python -m gpuboost demo real-world-info --json
+python -m gpuboost demo real-world-pairs --json
 ```
 
-The sample file is intentionally named `examples/bad_train_sample.txt` so
-formatters and linters do not treat it as project Python code.
-
-The default install covers inspection, setup checks, static analysis, compare,
-history, demo discovery, and advisory safety checks. Install the optional
-`benchmark`, `model`, or `all` extra when you want Torch-backed workflows;
-those extras include both PyTorch and NumPy while the base install stays
-lightweight.
+`examples/bad_train_sample.txt` is intentionally a `.txt` file so formatters and
+linters do not treat it as project Python code.
 
 ## Core Workflows
 
-Inspect the local system:
+Inspect the environment:
 
-```bash
+```powershell
 python -m gpuboost doctor
 python -m gpuboost doctor --json
 python -m gpuboost info
 python -m gpuboost info --json
 ```
 
-Run benchmarks and recommendations:
+Analyze a script:
 
-```bash
-python -m gpuboost benchmark --quick
-python -m gpuboost benchmark --quick --recommend
-python -m gpuboost benchmark --quick --json --recommend
-```
-
-Analyze a PyTorch script:
-
-```bash
+```powershell
 python -m gpuboost analyze train.py
 python -m gpuboost analyze train.py --json
 python -m gpuboost analyze train.py --patch
 ```
 
-Compare saved benchmark JSON files:
+Run the deterministic agent:
 
-```bash
+```powershell
+python -m gpuboost agent optimize train.py --json
+python -m gpuboost agent optimize train.py --trial --json
+python -m gpuboost agent optimize train.py --save-history
+```
+
+Prepare a human-approved agentic optimization run:
+
+```powershell
+python -m gpuboost agent optimize train.py --prepare
+python -m gpuboost agent show-plan <run_id>
+python -m gpuboost agent approve <run_id> --confirm "APPLY <plan>"
+python -m gpuboost agent apply <run_id>
+python -m gpuboost agent rollback <run_id>
+```
+
+This lifecycle is available on the main branch and is planned for GPUBoost
+`0.2.0`; it is not included in public PyPI `0.1.2`.
+
+- `--prepare` writes only an ignored `.gpuboost/runs/<run_id>.json` audit record
+  and never modifies source.
+- `agent show-plan` displays the exact reviewable diff before any approval.
+- `agent approve` is mandatory: it records a confirmation phrase bound to the
+  immutable plan digest, the original file hash, and the selected action IDs.
+- `agent apply` re-validates the original SHA-256 hash, creates a backup, applies
+  only approved deterministic edits, validates the result, and rolls back
+  automatically if validation fails.
+- `agent rollback` restores the pre-application backup and verifies the restored
+  hash matches the original.
+- Model output is advisory only and can never modify files directly.
+- No Git commit or push is ever performed automatically.
+- Unattended or autonomous patching is not supported; a human must approve every
+  applied change.
+
+Compare supported GPUBoost benchmark JSON files:
+
+```powershell
 python -m gpuboost compare baseline.json optimized.json
 python -m gpuboost compare baseline.json optimized.json --json
 ```
 
-Comparison reads existing files only. It does not run workloads, apply patches,
-or decide that a change is production-ready.
+Use local history:
 
-## Agent Optimize
-
-`agent optimize` is the one-shot deterministic workflow:
-
-```bash
-python -m gpuboost agent optimize
-python -m gpuboost agent optimize --json
-python -m gpuboost agent optimize train.py --json
-python -m gpuboost agent optimize train.py --save-history
+```powershell
+python -m gpuboost history list
+python -m gpuboost history show <run_id>
+python -m gpuboost history compare <baseline_run_id> <optimized_run_id>
 ```
 
-Without a script path, the agent inspects the system, runs the quick benchmark,
-builds advisor recommendations, and reports a summary. With a script path, it
-runs the lightweight static analysis and patch-planning path, then includes a
-reviewable diff when safe patch suggestions exist.
+Use dataset and model commands:
 
-JSON output uses schema version `agent.optimize.v1`. `partial` statuses are
-non-fatal and exit with code `0`; `error` exits with code `1`.
-
-See [Agent CLI](docs/agent-cli.md) for JSON shape, model-artifact behavior,
-history fields, and CLI examples.
-
-## Trial Workspace
-
-Trial mode applies generated patch suggestions only to a copied file in a
-temporary workspace:
-
-```bash
-python -m gpuboost agent optimize train.py --trial --json
-python -m gpuboost agent optimize train.py --trial --test "pytest"
-```
-
-The original source file is never modified. Syntax checks validate the copied
-file without importing or running the script. A user-provided test command runs
-only when `--trial --test "<command>"` is explicitly passed.
-
-See [Trial Workspace](docs/trial-workspace.md).
-
-## Dataset And Model Workflow
-
-GPUBoost includes a local structured workflow for dataset readiness, baseline
-evaluation, small PyTorch MLP training, explicit artifact packaging, and
-advisory agent integration:
-
-```bash
+```powershell
+python -m gpuboost dataset collect-outcomes data\gpuboost\experiments\pairs.json
 python -m gpuboost model evaluate-baselines --json
 python -m gpuboost model train-neural --json
-python -m gpuboost model train-neural --save-artifact --json
 python -m gpuboost model list-artifacts
-python -m gpuboost model check-artifact <manifest_path> --min-test-macro-f1 0.75 --require-beats-baseline
-python -m gpuboost agent optimize train.py --model-artifact <manifest_path> --json
+python -m gpuboost model safety-check --json
 ```
 
-The trained model remains advisory only. It cannot apply patches, edit files,
-override deterministic checks, override trials, replace tests, or replace
-benchmark evidence. Deterministic GPUBoost checks remain authoritative.
+Model training is experimental and local. Saved model artifacts are generated
+files and remain advisory only.
 
-> **What the model actually predicts.** The local model is trained on *structured
-> metadata about GPUBoost's own analysis* (such as finding counts, recommendation
-> counts, and patch-suggestion counts) together with labels derived from
-> comparing two benchmark JSON files. It does **not** read your code's runtime
-> behavior and it cannot causally predict whether applying a given patch will
-> speed up your real workload. In practice its signal reflects *whether GPUBoost
-> found optimization opportunities*, not the measured GPU impact of acting on
-> them. Treat the prediction as a coarse triage hint only, and rely on the
-> trial workspace and before/after benchmarks for any real performance claim.
-> The current model is also trained on a small, partly synthetic dataset, so it
-> should not be expected to generalize to arbitrary user scripts.
+The model workflow uses safe training data loading, safe feature extraction,
+baseline model comparison, MLP training, explicit artifact save steps, direct
+artifact prediction, and advisory-only agent integration. It does not fine-tune
+an LLM and does not call external services.
 
-Model training uses safe feature extraction and must not train on raw source,
-raw diffs, stdout, stderr, target-derived verdicts, or comparison labels.
-Artifacts are saved only when explicitly requested.
+Use demo discovery:
 
-See [Model Training](docs/model-training.md), [Model Interface](docs/model-interface.md),
-and [Phase 12 Release Readiness](docs/phase-12-release-readiness.md).
-
-## Real-World Demo Workflow
-
-GPUBoost includes lightweight realistic demos for validating the surrounding
-workflow:
-
-```bash
+```powershell
 python -m gpuboost demo real-world-info --json
 python -m gpuboost demo real-world-pairs --json
 ```
 
-The demos use synthetic data and are validation/demo coverage, not universal
-proof of optimization impact. Hardware variability can change results, and demo
-outcomes should not be generalized to every model or GPU.
+Demo workloads use synthetic local data and are not proof that a change will
+speed up a production workload.
 
-Generated demo output is written under ignored generated paths such as
-`data/gpuboost/generated/demo_real_world/`.
+## Validated on one local machine
 
-See [Demo Workflow](docs/demo-workflow.md), [Real-World Validation](docs/real-world-validation.md),
-and [Phase 14 Validation Summary](docs/phase-14-validation-summary.md).
+Fresh audit evidence is in [docs/post-release-audit.md](docs/post-release-audit.md).
+The table below is the published `0.1.2` post-release audit evidence. It is
+hardware/workload specific and should not be generalized.
 
-## Safety Guarantees
+| Item | Result |
+|---|---:|
+| GPUBoost version | 0.1.2 |
+| Python | 3.12.10 |
+| OS | Windows 11 |
+| GPU | NVIDIA GeForce RTX 4060 Laptop GPU, 8188 MB VRAM |
+| CUDA available | true |
+| PyTorch | 2.11.0+cu128 |
+| Ruff | all checks passed |
+| Pytest | 1044 passed |
+| Static analysis sample | 5 findings |
+| Agent optimize sample | 5 completed actions |
+| Agent trial sample | passed; original file unchanged |
+| Trial syntax-check duration | 0.024519 seconds |
+| Quick benchmark sections | 4 successful sections |
+| Best FP32 matmul | 7.167453 TFLOPS |
+| Best FP16 matmul | 31.337318 TFLOPS |
+| FP16/FP32 matmul ratio | 4.372169x |
+| AMP synthetic throughput | 24402.147 samples/sec |
+| FP32 synthetic throughput | 15938.796 samples/sec |
+| AMP synthetic ratio | 1.530991x |
+| Best batch sweep result | batch size 8, 2607.100 images/sec |
+| CNN demo baseline | 353.727 samples/sec |
+| CNN demo optimized | 862.134 samples/sec |
 
-- GPUBoost does not apply patches automatically.
-- There is no automatic patch application.
-- Reviewable diffs are generated before any trial modification.
-- Trial mode modifies only temporary copies, never the original source file.
-- Static analysis parses user code without importing or executing it.
-- Test commands are opt-in and run the provided program directly (no shell), so
-  shell metacharacters cannot chain or inject additional commands; the named
-  program itself still runs and can execute code.
-- Deterministic checks authoritative: deterministic GPUBoost checks remain
-  authoritative alongside measured benchmark evidence.
-- Model predictions are advisory only.
-- Advisory-only model predictions cannot apply patches, edit files, or approve
-  changes.
-- No external LLM APIs are used.
-- User code is not uploaded anywhere.
-- Local run history stays local unless explicitly exported or contributed.
-- Local run history does not store raw source, raw diffs, trial stdout, or
-  trial stderr by default.
-- Model features do not store raw source, raw diffs, stdout, or stderr.
-- Generated artifacts are ignored by default; generated artifacts ignored by
-  `.gitignore` include `data/gpuboost/generated/`, raw intake data, model
-  weights, databases, caches, and local reports.
-- Raw/generated data is not committed.
+The benchmark and demo results used synthetic or controlled data on one laptop.
+They are evidence that the commands ran successfully on that machine, not a
+promise that other workloads will see the same ratios.
 
-## Limitations
+## Current Development Branch Validation
 
-- Benchmarks are small local signals, not production performance proof.
-- Synthetic demos are validation/demo, not universal proof.
-- CPU-only machines skip CUDA benchmark work instead of failing hard.
-- Local model artifacts are experimental advisory aids, not a production
-  optimizer.
-- The model predicts from GPUBoost's own analysis metadata (finding/recommendation
-  counts), not from your code's runtime behavior; it does not causally predict the
-  real GPU speedup of a patch and reflects whether opportunities were found, not
-  their measured impact.
-- The model is trained on a small, partly synthetic dataset and is not expected
-  to generalize to arbitrary user scripts.
-- GPUBoost does not include a bundled/default trained production model.
-- Before/after validation currently compares saved benchmark JSON files; the
-  agent does not run arbitrary before/after benchmark commands automatically.
-- Power mode, thermal throttling, driver versions, CUDA versions, and workload
-  noise can dominate results.
+The human-approved agentic apply workflow is unreleased and planned for
+GPUBoost `0.2.0`. Current branch validation after the agentic apply changes:
 
-## Docs Index
+| Item | Result |
+|---|---:|
+| Package version | 0.1.2 |
+| Planned next release | 0.2.0 |
+| Ruff | all checks passed |
+| Pytest | 1059 passed, 1 skipped |
+| Expected skip | Windows symlink privilege-dependent test |
+
+The current package version intentionally remains `0.1.2`; public PyPI `0.1.2`
+is still the review-first release and does not include the apply lifecycle.
+
+## Safety Model
+
+- Patch suggestions are reviewable diffs.
+- Trial mode applies patch plans only to temporary copies.
+- The original source file is not modified by trial mode.
+- Human-approved agentic optimization never mutates source during `--prepare`.
+- `agent apply` requires a persisted approval tied to the plan digest and
+  original file hash, creates a pre-application backup, validates the result,
+  and rolls back automatically on validation or acceptance-policy failure.
+- No unapproved patch application is allowed.
+- Model output cannot directly modify files; only approved deterministic plan
+  edits are ever written.
+- No Git commit or push is performed automatically by any agent command.
+- Unattended autonomous patching is not supported; every applied change requires
+  an explicit human confirmation phrase.
+- Static analysis parses code without importing or executing the target script.
+- Raw diffs and trial stdout/stderr are redacted from agent JSON by default.
+- Model output is advisory and cannot override tests, trials, or benchmark
+  evidence.
+- Advisory-only model output is a triage aid only.
+- Deterministic checks authoritative: deterministic GPUBoost checks remain authoritative.
+- Generated raw data, generated datasets, local DBs, model weights, build
+  artifacts, temp validation environments, and local reports are ignored.
+- Generated artifacts ignored: generated artifacts are ignored by default.
+
+## Documentation
 
 - [Setup](docs/setup.md)
 - [Quickstart](docs/quickstart.md)
 - [Agent CLI](docs/agent-cli.md)
-- [Agent Core](docs/agent-core.md)
 - [Trial Workspace](docs/trial-workspace.md)
 - [Comparison](docs/comparison.md)
-- [Local History](docs/history.md)
+- [History](docs/history.md)
 - [Model Interface](docs/model-interface.md)
 - [Model Training](docs/model-training.md)
+- [Demo Workflow](docs/demo-workflow.md)
+- [Real-World Validation](docs/real-world-validation.md)
 - [Dependency Review](docs/dependency-review.md)
 - [Security Review](docs/security-review.md)
 - [Final Project Summary](docs/final-project-summary.md)
-- [Demo Workflow](docs/demo-workflow.md)
-- [Real-World Validation](docs/real-world-validation.md)
-- [Demo Report Template](docs/demo-report-template.md)
-- [Phase 12 Release Readiness](docs/phase-12-release-readiness.md)
+- [Release Notes](docs/release-notes.md)
+- [Release Checklist](docs/release-checklist.md)
 - [Phase 13 Testing](docs/phase-13-testing.md)
 - [Phase 13 Release Readiness](docs/phase-13-release-readiness.md)
 - [Phase 14 Validation Summary](docs/phase-14-validation-summary.md)
-- [Release Notes](docs/release-notes.md)
-- [Release Checklist](docs/release-checklist.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security Policy](SECURITY.md)
+- [Post-Release Audit](docs/post-release-audit.md)
 
-## License And Release Audit
+## Limitations
 
-GPUBoost is released under the MIT License; see [LICENSE](LICENSE). The release
-audit docs cover [Dependency Review](docs/dependency-review.md),
-[Security Review](docs/security-review.md), and the
-[Final Project Summary](docs/final-project-summary.md), including generated
-artifacts, external API requirements, advisory-only model behavior, and ignore
-rules.
+- Synthetic benchmarks are signals, not production performance proof.
+- GPU results vary with GPU model, driver, CUDA/PyTorch versions, thermals,
+  power mode, background load, and workload shape.
+- The local model workflow is experimental and has no bundled production model.
+- Real-world demo JSON currently records useful workload metrics, but
+  `gpuboost compare` did not compare those demo JSON files during the audit.
+- Raw third-party intake data is intentionally ignored and should be reviewed
+  before being kept in or copied from a local checkout.
+- PowerShell `Tee-Object` can write UTF-16 JSON on some systems; use UTF-8 when
+  saving JSON intended for `gpuboost compare`.
+- Agent benchmark acceptance policies require an explicit benchmark command
+  that emits JSON metrics such as `speedup_percent` or `regression_percent`.
 
-## Test And Validation Status
+## Development
 
-The intended validation commands for this phase are:
-
-```bash
+```powershell
 python -m ruff check .
-python -m pytest
+python -m pytest -q
+python -m build
+python -m twine check --strict dist/*
 ```
 
-The test suite is designed to run without an NVIDIA GPU. Some runtime benchmark
-results will be skipped or CPU-safe on systems without CUDA.
+Do not commit generated artifacts, raw intake data, model weights, local
+databases, `.env` files, temp validation environments, or build outputs.

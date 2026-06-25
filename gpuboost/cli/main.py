@@ -14,6 +14,15 @@ from dataclasses import replace
 from pathlib import Path
 
 from gpuboost import __version__
+from gpuboost.agent.approved_apply import (
+    apply_approved_optimization_run,
+    approve_optimization_run,
+    load_run as load_agentic_run,
+    prepare_optimization_run,
+    reject_optimization_run,
+    rollback_optimization_run,
+    short_plan_id,
+)
 from gpuboost.agent.workflow import run_optimize_script_workflow
 from gpuboost.advisor.engine import generate_advisor_result
 from gpuboost.benchmarks.runner import run_full_benchmark, run_quick_benchmark
@@ -51,6 +60,7 @@ from gpuboost.model.training_reports import (
     write_baseline_comparison_reports,
 )
 from gpuboost.repository import resolve_repository_context
+from gpuboost.schemas.agentic import AcceptancePolicy, AgenticOptimizationRun
 from gpuboost.schemas.model import ModelFeatureSet, ModelInput
 from gpuboost.schemas.training import NeuralSearchResult, NeuralTrainingConfig
 from gpuboost.utils.formatting import format_benchmark_suite, format_profile
@@ -258,15 +268,82 @@ def build_parser() -> argparse.ArgumentParser:
         "optimize",
         help="Prepare an agent optimization workflow.",
         description=(
-            "Prepare a deterministic, review-only optimization workflow. "
+            "Prepare a deterministic optimization workflow. "
             "With --model-artifact, local generated model predictions are "
-            "advisory-only and cannot apply patches."
+            "advisory-only and cannot apply patches. With --prepare, "
+            "GPUBoost writes an approval-gated plan record but never mutates "
+            "source before explicit approval."
         ),
     )
     agent_optimize_parser.add_argument(
         "script_path",
         nargs="?",
         help="Optional training script path.",
+    )
+    agent_optimize_parser.add_argument(
+        "--prepare",
+        action="store_true",
+        help="Prepare a human-approved apply run and show its immutable plan.",
+    )
+    agent_optimize_parser.add_argument(
+        "--repo-root",
+        help="Repository root used to constrain prepared/applyable source paths.",
+    )
+    agent_optimize_parser.add_argument(
+        "--action",
+        dest="action_ids",
+        action="append",
+        help="Only include this deterministic action ID in a prepared plan.",
+    )
+    agent_optimize_parser.add_argument(
+        "--exclude-action",
+        dest="exclude_action_ids",
+        action="append",
+        help="Exclude this deterministic action ID from a prepared plan.",
+    )
+    agent_optimize_parser.add_argument(
+        "--acceptance-policy",
+        choices=[policy.value for policy in AcceptancePolicy],
+        default=AcceptancePolicy.VALIDATION_ONLY.value,
+        help="Approved post-apply acceptance policy.",
+    )
+    agent_optimize_parser.add_argument(
+        "--min-speedup-percent",
+        type=float,
+        default=0.0,
+        help="Minimum speedup required by the minimum-speedup policy.",
+    )
+    agent_optimize_parser.add_argument(
+        "--max-regression-percent",
+        type=float,
+        default=0.0,
+        help="Maximum regression allowed by the no-regression policy.",
+    )
+    agent_optimize_parser.add_argument(
+        "--benchmark",
+        dest="benchmark_command",
+        help=(
+            "Optional benchmark command approved with the plan. Threshold "
+            "policies read speedup_percent or regression_percent from JSON stdout."
+        ),
+    )
+    agent_optimize_parser.add_argument(
+        "--validation-command",
+        help="Optional post-apply validation command for interactive apply.",
+    )
+    agent_optimize_parser.add_argument(
+        "--backup-dir",
+        help="Optional backup directory for interactive apply.",
+    )
+    agent_optimize_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="With --interactive-apply, validate the approved apply without writing.",
+    )
+    agent_optimize_parser.add_argument(
+        "--interactive-apply",
+        action="store_true",
+        help="Prepare, prompt for approval, then apply in one interactive session.",
     )
     agent_optimize_parser.add_argument(
         "--json",
@@ -315,6 +392,136 @@ def build_parser() -> argparse.ArgumentParser:
     agent_optimize_parser.add_argument(
         "--history-db-path",
         help="Optional history database path for development and testing.",
+    )
+
+    agent_show_plan_parser = agent_subparsers.add_parser(
+        "show-plan",
+        help="Show an approval-gated optimization plan.",
+    )
+    agent_show_plan_parser.add_argument("run_id", help="Prepared run ID.")
+    agent_show_plan_parser.add_argument("--repo-root", help="Repository root.")
+    agent_show_plan_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    agent_approve_parser = agent_subparsers.add_parser(
+        "approve",
+        help="Approve a prepared optimization plan.",
+    )
+    agent_approve_parser.add_argument("run_id", help="Prepared run ID.")
+    agent_approve_parser.add_argument("--repo-root", help="Repository root.")
+    agent_approve_parser.add_argument(
+        "--action",
+        dest="action_ids",
+        action="append",
+        help="Approve only this action ID. Repeat to approve multiple actions.",
+    )
+    agent_approve_parser.add_argument(
+        "--approved-by",
+        default="local-user",
+        help="Human approver identifier recorded in the audit trail.",
+    )
+    agent_approve_parser.add_argument(
+        "--confirm",
+        help='Exact confirmation phrase, for example: "APPLY 1234abcd".',
+    )
+    agent_approve_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    agent_reject_parser = agent_subparsers.add_parser(
+        "reject",
+        help="Reject a prepared optimization plan.",
+    )
+    agent_reject_parser.add_argument("run_id", help="Prepared run ID.")
+    agent_reject_parser.add_argument("--repo-root", help="Repository root.")
+    agent_reject_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    agent_apply_parser = agent_subparsers.add_parser(
+        "apply",
+        help="Apply an approved deterministic optimization plan.",
+    )
+    agent_apply_parser.add_argument("run_id", help="Approved run ID.")
+    agent_apply_parser.add_argument("--repo-root", help="Repository root.")
+    agent_apply_parser.add_argument(
+        "--backup-dir",
+        help="Optional backup directory under the repository root.",
+    )
+    agent_apply_parser.add_argument(
+        "--validation-command",
+        help="Optional explicit validation command to run after application.",
+    )
+    agent_apply_parser.add_argument(
+        "--test",
+        dest="test_command",
+        help="Optional explicit test command to run after application.",
+    )
+    agent_apply_parser.add_argument(
+        "--benchmark",
+        dest="benchmark_command",
+        help="Benchmark command; must match the approved plan when supplied.",
+    )
+    agent_apply_parser.add_argument(
+        "--acceptance-policy",
+        choices=[policy.value for policy in AcceptancePolicy],
+        help="Acceptance policy; must match the approved plan when supplied.",
+    )
+    agent_apply_parser.add_argument(
+        "--min-speedup-percent",
+        type=float,
+        help="Minimum speedup; must match the approved plan when supplied.",
+    )
+    agent_apply_parser.add_argument(
+        "--max-regression-percent",
+        type=float,
+        help="Maximum regression; must match the approved plan when supplied.",
+    )
+    agent_apply_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate the approved apply without modifying source.",
+    )
+    agent_apply_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    agent_rollback_parser = agent_subparsers.add_parser(
+        "rollback",
+        help="Rollback an applied optimization run from its backup.",
+    )
+    agent_rollback_parser.add_argument("run_id", help="Applied run ID.")
+    agent_rollback_parser.add_argument("--repo-root", help="Repository root.")
+    agent_rollback_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Rollback even if the target changed after application.",
+    )
+    agent_rollback_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
+    )
+
+    agent_status_parser = agent_subparsers.add_parser(
+        "status",
+        help="Show the lifecycle status for an optimization run.",
+    )
+    agent_status_parser.add_argument("run_id", help="Prepared run ID.")
+    agent_status_parser.add_argument("--repo-root", help="Repository root.")
+    agent_status_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print machine-readable JSON output.",
     )
 
     history_parser = subparsers.add_parser(
@@ -844,6 +1051,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent":
         if args.agent_command == "optimize":
+            if args.prepare or args.interactive_apply:
+                return _run_agent_prepare(args)
+
             validation_error = _validate_agent_optimize_args(args)
             if validation_error is not None:
                 if args.json:
@@ -917,7 +1127,24 @@ def main(argv: list[str] | None = None) -> int:
                     Console().print(output, markup=False, soft_wrap=True)
             return agent_status_to_exit_code(result.status)
 
-        print("GPUBoost Agent\nAvailable commands: optimize")
+        if args.agent_command == "show-plan":
+            return _run_agent_show_plan(args)
+        if args.agent_command == "approve":
+            return _run_agent_approve(args)
+        if args.agent_command == "reject":
+            return _run_agent_reject(args)
+        if args.agent_command == "apply":
+            return _run_agent_apply(args)
+        if args.agent_command == "rollback":
+            return _run_agent_rollback(args)
+        if args.agent_command == "status":
+            return _run_agent_status(args)
+
+        print(
+            "GPUBoost Agent\n"
+            "Available commands: optimize, show-plan, approve, reject, "
+            "apply, rollback, status"
+        )
         return 0
 
     if args.command == "history":
@@ -1937,10 +2164,362 @@ def _format_json_file_error(error: Exception) -> str:
 
 
 
+def _run_agent_prepare(args: argparse.Namespace) -> int:
+    validation_error = _validate_agent_optimize_args(args)
+    if validation_error is not None:
+        return _emit_agentic_error(
+            validation_error,
+            json_output=args.json,
+            command="agent optimize --prepare",
+        )
+    try:
+        run = prepare_optimization_run(
+            args.script_path,
+            repo_root=args.repo_root,
+            trial=args.trial,
+            action_ids=args.action_ids,
+            exclude_action_ids=args.exclude_action_ids,
+            acceptance_policy=args.acceptance_policy,
+            min_speedup_percent=args.min_speedup_percent,
+            max_regression_percent=args.max_regression_percent,
+            benchmark_command=args.benchmark_command,
+        )
+        if args.interactive_apply:
+            if args.json:
+                return _emit_agentic_error(
+                    "--interactive-apply cannot be used with --json.",
+                    json_output=True,
+                    command="agent optimize --prepare",
+                )
+            print(_render_agentic_run_human(run, command="optimize --prepare"))
+            confirmation = input(
+                f'Type "{_confirmation_phrase(run)}" to approve this plan: '
+            )
+            approved = approve_optimization_run(
+                run.run_id,
+                approved_by="local-user",
+                confirmation_phrase=confirmation,
+                repo_root=args.repo_root,
+            )
+            applied = apply_approved_optimization_run(
+                approved.run_id,
+                repo_root=args.repo_root,
+                backup_dir=args.backup_dir,
+                dry_run=args.dry_run,
+                validation_command=args.validation_command,
+                test_command=args.test_command,
+                benchmark_command=args.benchmark_command,
+                acceptance_policy=args.acceptance_policy,
+                min_speedup_percent=args.min_speedup_percent,
+                max_regression_percent=args.max_regression_percent,
+            )
+            print(_render_agentic_run_human(applied, command="apply"))
+            return _agentic_apply_exit_code(applied)
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        return _emit_agentic_error(
+            _format_exception_message(error),
+            json_output=args.json,
+            command="agent optimize --prepare",
+        )
+
+    if args.json:
+        print(
+            json.dumps(
+                _agentic_payload(
+                    command="agent optimize --prepare",
+                    run=run,
+                    include_confirmation=True,
+                ),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(_render_agentic_run_human(run, command="optimize --prepare"))
+    return 0 if run.lifecycle_status.value != "FAILED" else 1
+
+
+def _run_agent_show_plan(args: argparse.Namespace) -> int:
+    try:
+        run = load_agentic_run(args.run_id, repo_root=args.repo_root)
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        return _emit_agentic_error(
+            _format_exception_message(error),
+            json_output=args.json,
+            command="agent show-plan",
+        )
+    if args.json:
+        print(
+            json.dumps(
+                _agentic_payload(
+                    command="agent show-plan",
+                    run=run,
+                    include_confirmation=True,
+                ),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(_render_agentic_run_human(run, command="show-plan"))
+    return 0
+
+
+def _run_agent_approve(args: argparse.Namespace) -> int:
+    try:
+        confirmation = args.confirm
+        if confirmation is None:
+            if args.json:
+                return _emit_agentic_error(
+                    "--confirm is required with --json.",
+                    json_output=True,
+                    command="agent approve",
+                )
+            run = load_agentic_run(args.run_id, repo_root=args.repo_root)
+            confirmation = input(
+                f'Type "{_confirmation_phrase(run)}" to approve this plan: '
+            )
+        approved = approve_optimization_run(
+            args.run_id,
+            approved_by=args.approved_by,
+            confirmation_phrase=confirmation,
+            approved_action_ids=args.action_ids,
+            repo_root=args.repo_root,
+        )
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        return _emit_agentic_error(
+            _format_exception_message(error),
+            json_output=args.json,
+            command="agent approve",
+        )
+    return _emit_agentic_success(approved, args.json, "agent approve")
+
+
+def _run_agent_reject(args: argparse.Namespace) -> int:
+    try:
+        run = reject_optimization_run(args.run_id, repo_root=args.repo_root)
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        return _emit_agentic_error(
+            _format_exception_message(error),
+            json_output=args.json,
+            command="agent reject",
+        )
+    return _emit_agentic_success(run, args.json, "agent reject")
+
+
+def _run_agent_apply(args: argparse.Namespace) -> int:
+    try:
+        run = apply_approved_optimization_run(
+            args.run_id,
+            repo_root=args.repo_root,
+            backup_dir=args.backup_dir,
+            dry_run=args.dry_run,
+            validation_command=args.validation_command,
+            test_command=args.test_command,
+            benchmark_command=args.benchmark_command,
+            acceptance_policy=args.acceptance_policy,
+            min_speedup_percent=args.min_speedup_percent,
+            max_regression_percent=args.max_regression_percent,
+        )
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        return _emit_agentic_error(
+            _format_exception_message(error),
+            json_output=args.json,
+            command="agent apply",
+        )
+    if args.json:
+        print(
+            json.dumps(
+                _agentic_payload(command="agent apply", run=run),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(_render_agentic_run_human(run, command="apply", include_diff=False))
+    return _agentic_apply_exit_code(run)
+
+
+def _run_agent_rollback(args: argparse.Namespace) -> int:
+    try:
+        run = rollback_optimization_run(
+            args.run_id,
+            repo_root=args.repo_root,
+            force=args.force,
+        )
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        return _emit_agentic_error(
+            _format_exception_message(error),
+            json_output=args.json,
+            command="agent rollback",
+        )
+    return _emit_agentic_success(run, args.json, "agent rollback", include_diff=False)
+
+
+def _run_agent_status(args: argparse.Namespace) -> int:
+    try:
+        run = load_agentic_run(args.run_id, repo_root=args.repo_root)
+    except Exception as error:  # noqa: BLE001 - CLI boundary
+        return _emit_agentic_error(
+            _format_exception_message(error),
+            json_output=args.json,
+            command="agent status",
+        )
+    return _emit_agentic_success(run, args.json, "agent status", include_diff=False)
+
+
+def _emit_agentic_success(
+    run: AgenticOptimizationRun,
+    json_output: bool,
+    command: str,
+    *,
+    include_diff: bool = True,
+) -> int:
+    if json_output:
+        print(
+            json.dumps(
+                _agentic_payload(command=command, run=run),
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(
+            _render_agentic_run_human(
+                run,
+                command=command.replace("agent ", ""),
+                include_diff=include_diff,
+            )
+        )
+    return 0
+
+
+def _emit_agentic_error(
+    message: str,
+    *,
+    json_output: bool,
+    command: str,
+) -> int:
+    if json_output:
+        print(
+            json.dumps(
+                {
+                    "schema_version": "agentic.optimization.cli.v1",
+                    "command": command,
+                    "run": None,
+                    "error": message,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+    else:
+        print(f"GPUBoost Agentic Optimization\nCommand: {command}\nError: {message}")
+    return 1
+
+
+def _agentic_payload(
+    *,
+    command: str,
+    run: AgenticOptimizationRun,
+    include_confirmation: bool = False,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": "agentic.optimization.cli.v1",
+        "command": command,
+        "run": run.to_dict(),
+    }
+    if include_confirmation:
+        payload["confirmation_phrase"] = _confirmation_phrase(run)
+    return payload
+
+
+def _render_agentic_run_human(
+    run: AgenticOptimizationRun,
+    *,
+    command: str,
+    include_diff: bool = True,
+) -> str:
+    policy = dict((run.benchmark_result or {}).get("policy", {}))
+    lines = [
+        "GPUBoost Agentic Optimization",
+        f"Command: {command}",
+        f"Run ID: {run.run_id}",
+        f"Target: {run.target_file}",
+        f"Lifecycle: {run.lifecycle_status.value}",
+        f"Approval: {run.approval_state.value}",
+        f"Plan ID: {run.plan_id}",
+        f"Plan digest: {run.plan_digest}",
+        f"Original SHA256: {run.original_file_hash}",
+        "Source mutation before approval: none",
+    ]
+    if policy:
+        lines.append(
+            "Acceptance: "
+            f"{policy.get('acceptance_policy', AcceptancePolicy.VALIDATION_ONLY.value)}"
+        )
+    if run.error:
+        lines.append(f"Error: {run.error}")
+    if run.application_result:
+        lines.append(f"Application: {run.application_result.get('status')}")
+    if run.validation_result:
+        lines.append(f"Validation: {run.validation_result.get('status')}")
+    if run.benchmark_result and run.benchmark_result.get("status") != "not_run":
+        lines.append(f"Benchmark: {run.benchmark_result.get('status')}")
+    if run.rollback_result:
+        lines.append(f"Rollback: {run.rollback_result.get('status')}")
+
+    lines.append("")
+    lines.append("Actions:")
+    for action in run.proposed_actions:
+        lines.append(
+            "- "
+            f"{action.get('action_id')}: {action.get('title')} "
+            f"(risk={action.get('risk')}, confidence={action.get('confidence')}, "
+            f"edits={action.get('edit_count')})"
+        )
+    if not run.proposed_actions:
+        lines.append("- none")
+
+    if run.approval_state.value == "awaiting_approval":
+        lines.extend(
+            [
+                "",
+                "Approval Commands:",
+                f'- approve: gpuboost agent approve {run.run_id} --confirm "{_confirmation_phrase(run)}"',
+                f"- apply: gpuboost agent apply {run.run_id}",
+            ]
+        )
+
+    if include_diff and run.generated_diff:
+        lines.extend(["", "Reviewable Diff:", run.generated_diff])
+    return "\n".join(lines)
+
+
+def _confirmation_phrase(run: AgenticOptimizationRun) -> str:
+    return f"APPLY {short_plan_id(run.plan_id)}"
+
+
+def _agentic_apply_exit_code(run: AgenticOptimizationRun) -> int:
+    if run.final_status in {"completed", "dry_run"}:
+        return 0
+    if run.lifecycle_status.value == "COMPLETED":
+        return 0
+    return 1
+
+
 def _validate_agent_optimize_args(args: argparse.Namespace) -> str | None:
+    if (args.prepare or args.interactive_apply) and not args.script_path:
+        return "--prepare requires a script_path."
+    if args.interactive_apply and args.json:
+        return "--interactive-apply cannot be used with --json."
     if args.trial and not args.script_path:
         return "--trial requires a script_path."
-    if args.test_command is not None and not args.trial:
+    if (
+        args.test_command is not None
+        and not args.trial
+        and not (args.prepare or args.interactive_apply)
+    ):
         return "--test requires --trial."
     if args.test_command is not None and not args.script_path:
         return "--test requires a script_path."

@@ -1,5 +1,37 @@
 # GPUBoost Release Notes
 
+## Unreleased (planned for 0.2.0): Human-Approved Agentic Optimization
+
+This is a substantial new capability and is recommended as the next release,
+GPUBoost `0.2.0`. It is available on the main branch only. The current public
+PyPI release, `0.1.2`, remains the prior review-first release and does not
+include these `agent approve`/`agent apply` commands.
+
+- Added an explicit approval-gated lifecycle:
+  `agent optimize --prepare`, `agent show-plan`, `agent approve`,
+  `agent reject`, `agent apply`, `agent rollback`, and `agent status`.
+- `agent show-plan` is read-only and displays the exact reviewable diff before
+  any approval; model output can never modify files directly.
+- Operations are constrained to the active repository root: path traversal,
+  absolute paths outside the root, symlink escapes, escaping backup directories,
+  and run records belonging to a different repository are all rejected.
+- No Git commit or push is ever performed automatically, and unattended
+  autonomous patching is not supported.
+- `--prepare` is non-mutating and writes an ignored local run record with the
+  deterministic plan, risk labels, immutable plan digest, original file hash,
+  and reviewable diff.
+- `agent approve` records human approval tied to the run ID, plan ID, plan
+  digest, approved action IDs, approver, timestamp, and original target file
+  hash.
+- `agent apply` mutates source only after approval, creates a backup, validates
+  Python syntax/bytecode, supports explicit validation/test commands, and rolls
+  back automatically on validation or acceptance-policy failure.
+- Optional benchmark acceptance policies can require JSON metrics such as
+  `speedup_percent` or `regression_percent` from a user-provided benchmark
+  command.
+- Safety policy wording now distinguishes no automatic patching and no
+  unapproved patch application from human-approved deterministic apply.
+
 ## 0.1.2 Packaging Fix
 
 GPUBoost `0.1.2` completes the follow-up packaging fix after local validation

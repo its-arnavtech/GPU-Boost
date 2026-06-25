@@ -1,8 +1,10 @@
 # Agent Core
 
 GPUBoost Phase 5 implements a deterministic, non-LLM agent core. Phase 6 wraps
-this core in the `gpuboost agent optimize` CLI while keeping the workflow
-review-only and deterministic.
+this core in the `gpuboost agent optimize` CLI. The default optimize workflow
+is review-only and deterministic; the newer agentic apply path remains
+deterministic but requires explicit human approval before any original source
+file is changed.
 
 ## Architecture
 
@@ -18,6 +20,8 @@ Main modules:
 - `gpuboost/agent/planner.py`: goal-to-plan conversion
 - `gpuboost/agent/executor.py`: injected-handler plan execution
 - `gpuboost/agent/handlers.py`: handlers that call existing GPUBoost modules
+- `gpuboost/agent/approved_apply.py`: approval-gated source application,
+  validation, benchmark acceptance, backup, and rollback
 - `gpuboost/agent/report.py`: stable report builder
 - `gpuboost/agent/workflow.py`: internal optimize-script workflow helper
 
@@ -33,9 +37,14 @@ do not run in unit coverage.
 
 ## Safety Principles
 
-- No source files are edited.
-- No patches are applied automatically.
-- Patch output is review-only.
+- Default optimize and trial workflows do not edit source files.
+- No patches are applied automatically or without approval.
+- Patch output is review-only unless the user starts the explicit
+  `--prepare` -> `approve` -> `apply` lifecycle.
+- Approved apply runs are tied to an immutable plan digest and original file
+  hash.
+- Apply writes a backup before source replacement and rolls back on validation
+  or acceptance failure.
 - No LLM is used in Phase 5 or the Phase 6 CLI wrapper.
 - No network access is required for agent tests.
 - Tests are CPU-safe and use fake handlers where integration coverage is needed.
