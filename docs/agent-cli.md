@@ -1,6 +1,13 @@
 # Agent CLI
 
-The Phase 6 agent CLI exposes GPUBoost's deterministic optimize workflow:
+> **Availability.** The deterministic, review-only `agent optimize` workflow
+> ships in the public PyPI release `0.1.2`. The human-approved agentic
+> optimization lifecycle (`--prepare`, `show-plan`, `approve`, `reject`,
+> `apply`, `rollback`, `status`) is available on the main branch and planned for
+> GPUBoost `0.2.0`; it is not part of public `0.1.2`.
+
+The agent CLI exposes GPUBoost's deterministic optimize workflow and its
+human-approved agentic optimization lifecycle:
 
 ```bash
 gpuboost agent optimize
@@ -12,6 +19,13 @@ gpuboost agent optimize train.py --trial
 gpuboost agent optimize train.py --trial --json
 gpuboost agent optimize train.py --trial --test "pytest"
 gpuboost agent optimize train.py --save-history
+gpuboost agent optimize train.py --prepare
+gpuboost agent show-plan <run_id>
+gpuboost agent approve <run_id> --confirm "APPLY <plan>"
+gpuboost agent reject <run_id>
+gpuboost agent apply <run_id>
+gpuboost agent rollback <run_id>
+gpuboost agent status <run_id>
 python -m gpuboost agent optimize --model
 python -m gpuboost agent optimize --model --json
 python -m gpuboost agent optimize train.py --model-artifact data/gpuboost/generated/model_training/artifacts/<id>/manifest.json
@@ -26,6 +40,8 @@ mode is a future feature.
 ## Purpose
 
 `gpuboost agent optimize` runs a one-shot, non-LLM optimization workflow.
+Without `--prepare`, it remains review-oriented and does not modify the target
+source file.
 
 Without a script path, it performs system-level analysis:
 
@@ -48,8 +64,27 @@ With `--trial`, it also:
 - runs Python syntax validation without executing user code
 - optionally runs an explicit `--test` command in the trial workspace
 
-The original source file is never modified. GPUBoost does not implement
-`--apply`.
+The original source file is never modified by review-only optimize or trial
+mode. GPUBoost does not apply patches automatically.
+
+With `--prepare`, GPUBoost switches to the human-approved agentic optimization
+lifecycle:
+
+- analyze the target file without importing or executing it
+- build a deterministic patch plan
+- show the plan, risk labels, immutable plan digest, original file hash, and
+  unified diff
+- persist an ignored `.gpuboost/runs/<run_id>.json` audit record
+- wait for explicit approval tied to the exact plan digest and source hash
+- apply only approved deterministic edits
+- validate the resulting source
+- optionally enforce benchmark acceptance metrics
+- roll back from a pre-application backup if validation or acceptance fails
+
+There is no unapproved patch application. Approval for one plan cannot
+authorize another plan because `agent approve` records the run ID, plan ID,
+plan digest, approved action IDs, approver, timestamp, and original target file
+hash.
 
 With `--model`, it also routes safe summary features through the local model
 interface. Without an artifact, the workflow falls back to `NullModelProvider`.
@@ -122,6 +157,49 @@ History:
 - Saved run: run_...
 ```
 
+## Agentic Apply Lifecycle
+
+The approval-gated path is explicit and multi-step:
+
+```bash
+gpuboost agent optimize train.py --prepare
+gpuboost agent show-plan opt-...
+gpuboost agent approve opt-... --confirm "APPLY 1234abcd"
+gpuboost agent apply opt-...
+```
+
+`agent optimize --prepare` is non-mutating. It writes the run record under the
+repository's ignored `.gpuboost/runs/` directory and prints the confirmation
+phrase required for approval. `agent approve` checks that the file still has
+the original SHA-256 hash and that the persisted plan digest still matches the
+stored plan. `agent apply` repeats those checks, creates a backup under
+`.gpuboost/backups/`, applies only approved actions, runs AST/bytecode
+validation for Python files, runs any explicit validation or test command, and
+rolls back if validation or benchmark acceptance fails.
+
+Useful options:
+
+```bash
+gpuboost agent optimize train.py --prepare --action patch_cudnn_benchmark_missing
+gpuboost agent optimize train.py --prepare --exclude-action patch_dataloader_combined_line_4
+gpuboost agent optimize train.py --prepare --acceptance-policy validation-only
+gpuboost agent optimize train.py --prepare --acceptance-policy minimum-speedup --min-speedup-percent 2 --benchmark "python bench.py"
+gpuboost agent apply opt-... --validation-command "python -m py_compile train.py"
+gpuboost agent apply opt-... --dry-run
+```
+
+Benchmark threshold policies require the approved benchmark command to emit
+JSON to stdout with `speedup_percent` or `regression_percent`. If a benchmark
+command fails or required metrics are missing, `agent apply` restores the
+backup and marks the run `ROLLED_BACK`.
+
+The repository includes `examples/agentic_apply_demo.txt` as a small local demo
+target:
+
+```bash
+python -m gpuboost agent optimize examples/agentic_apply_demo.txt --prepare
+```
+
 ## JSON Output
 
 JSON output is valid JSON only and uses schema version `agent.optimize.v1`:
@@ -189,13 +267,40 @@ set to `null`:
 }
 ```
 
+Agentic lifecycle commands return JSON with schema version
+`agentic.optimization.cli.v1`:
+
+```json
+{
+  "schema_version": "agentic.optimization.cli.v1",
+  "command": "agent optimize --prepare",
+  "confirmation_phrase": "APPLY 1234abcd",
+  "run": {
+    "schema_version": "agentic.optimization.v1",
+    "run_id": "opt-...",
+    "lifecycle_status": "AWAITING_APPROVAL",
+    "approval_state": "awaiting_approval",
+    "plan_digest": "...",
+    "original_file_hash": "...",
+    "proposed_actions": [],
+    "generated_diff": "..."
+  }
+}
+```
+
 ## Safety Model
 
-GPUBoost never applies patches to original files. Patch diffs are review-only.
-Trial mode applies patches only to a temporary copy. Syntax checks use Python
-compilation only and do not import or run the target script. A `--test` command
-is explicit opt-in and may execute arbitrary user-provided code in the trial
-workspace.
+GPUBoost never applies patches automatically or without approval. Patch diffs
+from the default optimize path are review-only. Trial mode applies patches only
+to a temporary copy. Syntax checks use Python compilation only and do not import
+or run the target script. A `--test` command is explicit opt-in and may execute
+arbitrary user-provided code in the trial workspace.
+
+Human-approved agentic optimization adds a controlled original-file apply path.
+The apply path is deterministic and local: model output cannot approve a run,
+approval is bound to the immutable plan digest and original file hash, and
+`agent apply` writes a backup before changing source. Failed validation or
+failed benchmark acceptance restores the backup automatically.
 
 Phase 7 implements the safe trial workspace. Phase 9 adds optional local
 history. Phase 10 adds the local model interface and fallback provider. Phase
@@ -238,11 +343,13 @@ JSON preserves action statuses and errors in `result.plan.actions`.
 
 ## Current Limitations
 
-- No auto-apply or `--apply`
+- No auto-apply; `agent apply` requires a prior human approval record.
 - No external LLM APIs
 - Trained model artifacts are advisory only and not auto-applied
 - Quick benchmark only for now
 - Full benchmark agent mode is not implemented yet
+- Benchmark threshold policies depend on a user-provided command that emits
+  simple JSON metrics.
 
 ## Phase 14 Real-World Validation Notes
 
@@ -252,9 +359,11 @@ training rows. The agent can include artifact/advisory model output when a
 local model artifact is supplied, but the model remains advisory-only.
 
 There is no automatic patch application. The agent must keep
-`patch_application_allowed=false`, and deterministic GPUBoost checks remain authoritative:
-static analysis, trial workspace validation, syntax checks, explicit tests, and
-measured benchmark comparisons decide whether a suggested change is credible.
+`patch_application_allowed=false` for model output and no unapproved patch
+application is allowed. Deterministic GPUBoost checks remain authoritative:
+static analysis, trial workspace validation, syntax checks, explicit tests,
+and measured benchmark comparisons decide whether a suggested change is
+credible.
 
 Generated real-world demo artifacts are ignored under
 `data/gpuboost/generated/demo_real_world/`. The demos use synthetic data and
@@ -268,6 +377,7 @@ optimization behavior. Hardware variability can change benchmark verdicts.
 - JSON output available
 - Reviewable diffs displayed
 - No auto-apply
+- Human-approved deterministic apply lifecycle available
 - Error/partial handling implemented
 - CPU-safe test coverage
 - Phase 7: trial workspace

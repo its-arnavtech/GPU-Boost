@@ -30,6 +30,7 @@ _REPOSITORY_ONLY_CHECKS = (
     "env_secret_patterns_ignored",
     "raw_data_ignored",
     "model_patch_application_allowed_false_documented",
+    "agentic_apply_policy_documented",
 )
 
 
@@ -50,6 +51,7 @@ def verify_model_workflow_safety(
     )
     provider_source = _read_module_text("gpuboost.model.provider")
     cli_source = _read_module_text("gpuboost.cli.main")
+    approved_apply_source = _read_module_text("gpuboost.agent.approved_apply")
 
     checks: dict[str, bool | None] = {
         "generated_dir_ignored": _repo_check(
@@ -77,12 +79,24 @@ def verify_model_workflow_safety(
             "data/gpuboost/raw/" in gitignore,
         ),
         "patch_application_allowed": False,
+        "model_patch_application_allowed": False,
+        "unapproved_patch_application_allowed": False,
+        "approved_deterministic_patch_application_allowed": True,
+        "approval_required": True,
+        "approval_digest_required": "Plan digest mismatch" in approved_apply_source,
+        "original_file_hash_required": "original_file_hash" in approved_apply_source,
+        "automatic_rollback_enabled": "restore_backup" in approved_apply_source,
         "model_patch_application_allowed_false_documented": _repo_check(
             repository.root,
             (
                 "patch_application_allowed=false" in docs_text
                 or "patch_application_allowed: false" in docs_text
             ),
+        ),
+        "agentic_apply_policy_documented": _repo_check(
+            repository.root,
+            "human-approved agentic optimization" in docs_text.lower()
+            and "unapproved patch application" in docs_text.lower(),
         ),
         "provider_patch_application_allowed_false": (
             '"patch_application_allowed": False' in provider_source
@@ -107,6 +121,9 @@ def verify_model_workflow_safety(
     for name in (
         "provider_patch_application_allowed_false",
         "no_default_artifact_path_required",
+        "approval_digest_required",
+        "original_file_hash_required",
+        "automatic_rollback_enabled",
     ):
         if checks[name] is False:
             warnings.append(f"Safety check failed: {name}")
@@ -121,6 +138,9 @@ def verify_model_workflow_safety(
             "env_secret_patterns_ignored",
             "raw_data_ignored",
             "provider_patch_application_allowed_false",
+            "approval_digest_required",
+            "original_file_hash_required",
+            "automatic_rollback_enabled",
         )
         if checks[name] is False
     ]
