@@ -1,6 +1,6 @@
 # Security Review
 
-GPUBoost `0.1.0` is local-first release tooling. The normal workflow does not
+GPUBoost `0.2.0` is local-first release tooling. The normal workflow does not
 require secrets, external APIs, cloud credentials, scraping, or dataset
 downloads.
 

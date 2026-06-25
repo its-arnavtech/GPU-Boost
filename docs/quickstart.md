@@ -57,9 +57,7 @@ file is not modified.
 
 ## Optional Human-Approved Apply
 
-This human-approved apply lifecycle is available on the main branch and planned
-for GPUBoost `0.2.0`; it is not part of public PyPI `0.1.2`, which stays
-review-first.
+GPUBoost `0.2.0` includes the human-approved apply lifecycle.
 
 For a real script you control, prepare an approval-gated run before any source
 file is changed:

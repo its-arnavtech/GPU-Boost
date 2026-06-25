@@ -1,10 +1,9 @@
 # Agent CLI
 
-> **Availability.** The deterministic, review-only `agent optimize` workflow
-> ships in the public PyPI release `0.1.2`. The human-approved agentic
+> **Availability.** GPUBoost `0.2.0` includes both the deterministic,
+> review-oriented `agent optimize` workflow and the human-approved agentic
 > optimization lifecycle (`--prepare`, `show-plan`, `approve`, `reject`,
-> `apply`, `rollback`, `status`) is available on the main branch and planned for
-> GPUBoost `0.2.0`; it is not part of public `0.1.2`.
+> `apply`, `rollback`, `status`).
 
 The agent CLI exposes GPUBoost's deterministic optimize workflow and its
 human-approved agentic optimization lifecycle:

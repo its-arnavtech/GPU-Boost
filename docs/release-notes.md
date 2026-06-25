@@ -1,11 +1,11 @@
 # GPUBoost Release Notes
 
-## Unreleased (planned for 0.2.0): Human-Approved Agentic Optimization
+## 0.2.0 - 2026-06-25
 
-This is a substantial new capability and is recommended as the next release,
-GPUBoost `0.2.0`. It is available on the main branch only. The current public
-PyPI release, `0.1.2`, remains the prior review-first release and does not
-include these `agent approve`/`agent apply` commands.
+GPUBoost `0.2.0` adds human-approved agentic optimization for deterministic
+source edits. GPUBoost proposes an exact diff, requires explicit approval, and
+can apply only the approved deterministic edits with backups, validation, and
+rollback.
 
 - Added an explicit approval-gated lifecycle:
   `agent optimize --prepare`, `agent show-plan`, `agent approve`,
@@ -14,7 +14,8 @@ include these `agent approve`/`agent apply` commands.
   any approval; model output can never modify files directly.
 - Operations are constrained to the active repository root: path traversal,
   absolute paths outside the root, symlink escapes, escaping backup directories,
-  and run records belonging to a different repository are all rejected.
+  and cross-repository run records belonging to a different repository are all
+  rejected.
 - No Git commit or push is ever performed automatically, and unattended
   autonomous patching is not supported.
 - `--prepare` is non-mutating and writes an ignored local run record with the
@@ -23,6 +24,8 @@ include these `agent approve`/`agent apply` commands.
 - `agent approve` records human approval tied to the run ID, plan ID, plan
   digest, approved action IDs, approver, timestamp, and original target file
   hash.
+- Partial approvals are supported: users can approve only selected deterministic
+  actions from the proposed plan.
 - `agent apply` mutates source only after approval, creates a backup, validates
   Python syntax/bytecode, supports explicit validation/test commands, and rolls
   back automatically on validation or acceptance-policy failure.
@@ -31,6 +34,11 @@ include these `agent approve`/`agent apply` commands.
   command.
 - Safety policy wording now distinguishes no automatic patching and no
   unapproved patch application from human-approved deterministic apply.
+- Persisted lifecycle records capture the run ID, plan ID, plan digest, original
+  source hash, approval details, backup path, validation result, benchmark
+  result, rollback result, and final status.
+- Model-originated patching remains forbidden: model output is advisory and
+  cannot approve, apply, or widen a deterministic plan.
 
 ## 0.1.2 Packaging Fix
 
@@ -125,13 +133,18 @@ download data, call external APIs, or commit generated artifacts.
 
 ## Safety Guarantees
 
-- GPUBoost does not apply patches automatically.
-- No automatic patching is part of this release.
-- Patch diffs are review-only.
+- GPUBoost does not apply patches without approval.
+- Patch diffs are review-only unless the user enters the explicit
+  `--prepare` -> `approve` -> `apply` lifecycle.
 - Trial mode modifies only temporary workspace copies.
-- Model predictions are advisory-only and cannot apply patches.
+- Model predictions are advisory-only and cannot apply patches or approve
+  changes.
 - Trained artifact metadata keeps `patch_application_allowed=false`.
 - Deterministic checks and measured benchmark evidence remain authoritative.
+- Approved deterministic edits may be applied automatically only after explicit
+  human approval tied to the plan digest and original source hash.
+- Backups, validation, benchmark acceptance policies, automatic rollback, and
+  explicit rollback are built into the apply lifecycle.
 - CLI JSON redacts raw diffs and trial stdout/stderr by default.
 - Normal test and docs workflows do not call external APIs.
 - Normal test workflows do not require CUDA.
@@ -148,8 +161,9 @@ download data, call external APIs, or commit generated artifacts.
 - CPU fallback is useful for smoke testing but does not represent CUDA
   performance.
 - Normal release validation does not prove production speedup.
-- Automatic benchmark-command comparison and automatic patch application remain
-  future work.
+- Fully unattended autonomous patching remains unsupported.
+- Benchmark threshold policies require a user-provided command that emits
+  simple JSON metrics.
 
 ## Notable Commands
 
@@ -159,6 +173,11 @@ python -m gpuboost info --json
 python -m gpuboost benchmark --quick --recommend
 python -m gpuboost analyze examples/bad_train_sample.txt --patch
 python -m gpuboost agent optimize examples/bad_train_sample.txt --trial
+python -m gpuboost agent optimize examples/agentic_apply_demo.txt --prepare
+python -m gpuboost agent show-plan <run_id>
+python -m gpuboost agent approve <run_id> --confirm "APPLY <plan>"
+python -m gpuboost agent apply <run_id>
+python -m gpuboost agent rollback <run_id>
 python -m gpuboost model safety-check --json
 python -m gpuboost model evaluate-baselines --json
 python -m gpuboost model train-neural --json
