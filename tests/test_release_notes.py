@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from pathlib import Path
 
 import pytest
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - exercised on Python 3.10 CI
+    import tomli as tomllib
 
 import gpuboost
 from gpuboost.cli import main as cli_main
