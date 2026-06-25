@@ -48,7 +48,7 @@ def test_gitignore_keeps_public_templates_and_fixtures_trackable() -> None:
 def test_readme_documents_current_release_and_install_commands() -> None:
     text = README.read_text(encoding="utf-8")
 
-    assert "GPUBoost 0.1.2" in text
+    assert "GPUBoost 0.2.0" in text
     assert "pip install gpuboost" in text
     assert 'pip install "gpuboost[all]"' in text
     assert 'pip install "gpuboost[benchmark]"' in text
@@ -62,6 +62,7 @@ def test_readme_preserves_safety_model_claims() -> None:
 
     for phrase in (
         "no automatic patch application",
+        "no unapproved patch application",
         "model output is advisory",
         "deterministic checks remain authoritative",
         "patch_application_allowed=false",
@@ -77,6 +78,8 @@ def test_readme_links_current_post_release_audit_evidence() -> None:
     assert "docs/post-release-audit.md" in text
     assert "Validated on one local machine" in text
     assert "1044 passed" in text
+    assert "Current 0.2.0 Validation" in text
+    assert "1060 passed, 1 skipped" in text
     assert AUDIT_DOC.exists()
 
 

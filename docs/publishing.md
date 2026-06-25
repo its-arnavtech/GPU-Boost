@@ -58,7 +58,7 @@ python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-ur
 in both PyTorch and NumPy, while the base `gpuboost` install should keep both
 dependencies optional.
 
-For `0.1.2`, validate at least these installed-package commands from outside
+For `0.2.0`, validate at least these installed-package commands from outside
 the repository:
 
 ```bash

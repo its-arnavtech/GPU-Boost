@@ -1,15 +1,15 @@
-# GPUBoost 0.1.2
+# GPUBoost 0.2.0
 
 GPUBoost is a local-first Python CLI for inspecting NVIDIA GPU environments,
 running bounded synthetic benchmarks, analyzing PyTorch scripts, and preparing
 reviewable optimization advice.
 
-> **Release status.** The current public PyPI release is `0.1.2`, the prior
-> review-first release: it proposes and displays diffs but never modifies your
-> source. Human-approved agentic optimization — the
-> `agent optimize --prepare`/`approve`/`apply`/`rollback` lifecycle described below — is
-> available on the main branch and planned for GPUBoost `0.2.0`. It is **not**
-> part of public PyPI `0.1.2`.
+> **Release status.** GPUBoost `0.2.0` includes human-approved agentic
+> optimization: it proposes an exact deterministic diff, requires explicit
+> approval, applies only approved deterministic edits, creates backups, validates
+> the result, and can roll back automatically. Model output cannot directly
+> modify files, unapproved patching is forbidden, Git commits/pushes are never
+> automatic, and fully unattended autonomous patching is not supported.
 
 - PyPI: <https://pypi.org/project/gpuboost/>
 - Repository: <https://github.com/its-arnavtech/GPU-Boost>
@@ -28,8 +28,7 @@ reviewable optimization advice.
 - Builds reviewable patch plans and unified diffs for conservative suggestions.
 - Validates generated patch plans in temporary trial workspaces when requested.
 - Prepares approval-gated agentic optimization runs that can apply selected
-  deterministic edits only after explicit human approval (main branch; planned
-  for GPUBoost 0.2.0, not in public 0.1.2).
+  deterministic edits only after explicit human approval.
 - Compares supported GPUBoost benchmark JSON files.
 - Stores local history only when explicitly requested.
 - Provides local dataset, model artifact, and advisory model workflows.
@@ -130,8 +129,7 @@ python -m gpuboost agent apply <run_id>
 python -m gpuboost agent rollback <run_id>
 ```
 
-This lifecycle is available on the main branch and is planned for GPUBoost
-`0.2.0`; it is not included in public PyPI `0.1.2`.
+This lifecycle is included in GPUBoost `0.2.0`.
 
 - `--prepare` writes only an ignored `.gpuboost/runs/<run_id>.json` audit record
   and never modifies source.
@@ -191,7 +189,9 @@ python -m gpuboost demo real-world-pairs --json
 Demo workloads use synthetic local data and are not proof that a change will
 speed up a production workload.
 
-## Validated on one local machine
+## Published 0.1.2 Audit Evidence
+
+Validated on one local machine.
 
 Fresh audit evidence is in [docs/post-release-audit.md](docs/post-release-audit.md).
 The table below is the published `0.1.2` post-release audit evidence. It is
@@ -226,21 +226,20 @@ The benchmark and demo results used synthetic or controlled data on one laptop.
 They are evidence that the commands ran successfully on that machine, not a
 promise that other workloads will see the same ratios.
 
-## Current Development Branch Validation
+## Current 0.2.0 Validation
 
-The human-approved agentic apply workflow is unreleased and planned for
-GPUBoost `0.2.0`. Current branch validation after the agentic apply changes:
+Current release validation after the human-approved agentic apply changes:
 
 | Item | Result |
 |---|---:|
-| Package version | 0.1.2 |
-| Planned next release | 0.2.0 |
+| Package version | 0.2.0 |
 | Ruff | all checks passed |
-| Pytest | 1059 passed, 1 skipped |
+| Pytest | 1060 passed, 1 skipped |
 | Expected skip | Windows symlink privilege-dependent test |
 
-The current package version intentionally remains `0.1.2`; public PyPI `0.1.2`
-is still the review-first release and does not include the apply lifecycle.
+The published `0.1.2` audit remains above as historical evidence for the prior
+review-first release. The `0.2.0` validation count is separate and includes the
+human-approved agentic apply workflow.
 
 ## Safety Model
 

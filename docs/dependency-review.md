@@ -1,6 +1,6 @@
 # Dependency Review
 
-GPUBoost `0.1.2` keeps a small dependency surface for local inspection,
+GPUBoost `0.2.0` keeps a small dependency surface for local inspection,
 analysis, advisory safety checks, and release validation, with PyTorch moved to
 optional extras for benchmark and model workflows.
 
