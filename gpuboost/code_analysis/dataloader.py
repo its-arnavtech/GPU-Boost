@@ -35,7 +35,10 @@ class DataLoaderFindingVisitor(BaseFindingVisitor):
                 ),
                 suggested_action=(
                     "Set num_workers based on your CPU core count and benchmark "
-                    "results."
+                    "results. Workers mainly help when data loading or "
+                    "preprocessing is the bottleneck; for in-memory or trivial "
+                    "datasets (especially on Windows, which spawns worker "
+                    "processes) they can be much slower, so benchmark first."
                 ),
                 code_snippet="DataLoader(..., num_workers=4, ...)",
                 related_recommendation_ids=["dataloader_tune_workers"],
@@ -58,7 +61,10 @@ class DataLoaderFindingVisitor(BaseFindingVisitor):
                 ),
                 suggested_action=(
                     "Try num_workers=2, 4, or the Advisor-recommended value and "
-                    "benchmark again."
+                    "benchmark again. Workers mainly help when data loading or "
+                    "preprocessing is the bottleneck; for in-memory or trivial "
+                    "datasets (especially on Windows, which spawns worker "
+                    "processes) they can be much slower, so benchmark first."
                 ),
                 code_snippet="DataLoader(..., num_workers=4, ...)",
                 related_recommendation_ids=["dataloader_tune_workers"],
@@ -82,7 +88,9 @@ class DataLoaderFindingVisitor(BaseFindingVisitor):
                 ),
                 suggested_action=(
                     "If using CUDA, try pin_memory=True and move tensors with "
-                    "non_blocking=True."
+                    "non_blocking=True. pin_memory helps when host-to-GPU "
+                    "transfer is a bottleneck; for data already on the GPU or "
+                    "cheap to transfer it can be slower, so benchmark first."
                 ),
                 code_snippet="DataLoader(..., pin_memory=True, ...)",
                 related_recommendation_ids=["dataloader_enable_pinned_memory"],
@@ -104,7 +112,10 @@ class DataLoaderFindingVisitor(BaseFindingVisitor):
                     "workloads."
                 ),
                 suggested_action=(
-                    "If batches are moved to CUDA, benchmark pin_memory=True."
+                    "If batches are moved to CUDA, benchmark pin_memory=True. "
+                    "It helps when host-to-GPU transfer is a bottleneck; for "
+                    "data already on the GPU or cheap to transfer it can be "
+                    "slower, so benchmark first."
                 ),
                 code_snippet="DataLoader(..., pin_memory=True, ...)",
                 related_recommendation_ids=["dataloader_enable_pinned_memory"],

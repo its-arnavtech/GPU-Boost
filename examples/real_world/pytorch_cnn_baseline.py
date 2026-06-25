@@ -24,8 +24,8 @@ def main() -> None:
     set_deterministic_seed(torch, 1401)
     device, cuda_available = resolve_device(torch, args.device)
     batch_size = 4 if args.quick else args.batch_size
-    warmup_steps = 1 if args.quick else args.warmup_steps
-    measured_steps = 2 if args.quick else args.steps
+    warmup_steps = 3 if args.quick else args.warmup_steps
+    measured_steps = 10 if args.quick else args.steps
 
     model = SmallCnn(torch).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)

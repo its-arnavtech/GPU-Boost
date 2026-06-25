@@ -189,6 +189,81 @@ python -m gpuboost demo real-world-pairs --json
 Demo workloads use synthetic local data and are not proof that a change will
 speed up a production workload.
 
+## Does It Actually Help? Measured Results
+
+GPUBoost is advisory: it does not make code faster by itself. It measures your
+GPU and recommends changes (mixed precision, batch sizing, Tensor-Core-friendly
+shapes, DataLoader settings); the speedup comes from applying the **right**
+recommendation to the **right** workload. The numbers below were measured on
+2026-06-25 on one machine (NVIDIA GeForce RTX 4060 Laptop GPU, CUDA 12.8,
+PyTorch 2.11.0+cu128, Windows 11). They are evidence from this machine, not a
+universal promise — re-measure on your own hardware with your own workload.
+
+### `pip install gpuboost` works
+
+Verified in a clean, isolated virtual environment installing from PyPI:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install gpuboost     # installs gpuboost 0.2.0
+.\.venv\Scripts\python -m gpuboost --version        # gpuboost 0.2.0
+.\.venv\Scripts\python -m gpuboost doctor --json    # all required checks pass
+.\.venv\Scripts\python -m gpuboost analyze train.py --json
+```
+
+`pip install gpuboost` installed `gpuboost 0.2.0` (a ~215 KB pure-Python wheel
+plus `rich`, `psutil`, `nvidia-ml-py`). Every **required** `doctor` check passed;
+`analyze` correctly flagged all five issues in the sample script (`num_workers=0`,
+missing `pin_memory`, missing AMP autocast, a `.item()` sync inside the loop, and
+missing `cudnn.benchmark`); `model safety-check` reported `ok`. PyTorch is an
+optional extra (`pip install "gpuboost[all]"`), needed only for the GPU benchmark
+and model commands.
+
+### Where it helps (measured)
+
+| Recommendation | Workload where it helps | Measured speedup |
+|---|---|---:|
+| Tensor Cores / FP16 | 4096×4096 matmul, FP16 vs FP32 | **4.40×** (31.5 vs 7.2 TFLOPS) |
+| Larger batch size | CNN throughput sweep | **4.64×** at batch 32 vs batch 1 |
+| Mixed precision (AMP) | compute-heavy CNN (64–256 channels), batch ≥ 64 | **1.47–1.52×** |
+| Mixed precision (AMP) | 4096-dim MLP, batch 256 | **1.17×** |
+| Mixed precision (AMP) | small CNN at large batch (256) | **1.34×** |
+
+Domain summary: the advice pays off on **compute-bound, matrix-heavy training** —
+large `Linear`/`Conv`/attention layers with dimensions divisible by 8/16, run at
+a batch size large enough to saturate the GPU, on a Tensor-Core GPU.
+
+### Where it does not help — or hurts (measured)
+
+| Setting | Workload where it backfires | Measured result |
+|---|---|---:|
+| AMP | tiny transformer (d_model=32, 1 layer), any batch | **0.70–0.77×** (slower) |
+| AMP | small CNN / MLP at small batch (16–64) | **0.54–0.81×** (slower) |
+| `num_workers > 0` | synthetic in-memory dataset on Windows | **~100× slower** (37–54 vs 5194 samples/s) |
+| `pin_memory=True` | data already cheap to transfer / in-memory | **0.45×** (≈2.2× slower) |
+| Batch size past the sweet spot | batch 64/128 vs 32 | slower (1531/1802 vs 2170 img/s) |
+
+Domain summary: the advice does little or backfires on **tiny / launch-bound
+models**, **very small batches**, and — especially on Windows — **DataLoader
+`num_workers`/`pin_memory` tweaks for in-memory or trivial datasets**, where
+process-spawn and host-pinning overhead dominate. GPUBoost's own
+`benchmark --recommend` measured this on this machine and downgraded the
+DataLoader-workers recommendation with an explicit warning, so trust the measured
+numbers over the generic rule.
+
+### Reproduce it
+
+```powershell
+python -m gpuboost benchmark --quick --json --recommend
+python examples\real_world\pytorch_cnn_baseline.py --benchmark-json --device cuda --steps 50
+python examples\real_world\pytorch_cnn_optimized.py --benchmark-json --device cuda --steps 50
+```
+
+The bundled demo workloads are intentionally tiny, so their per-step times are
+noisy run-to-run; use `--steps 50` or more (not `--quick`'s 2 steps) and compare
+medians of several runs. The `benchmark --recommend` suite uses larger, steadier
+workloads and is the more reliable signal.
+
 ## Published 0.1.2 Audit Evidence
 
 Validated on one local machine.
@@ -234,7 +309,7 @@ Current release validation after the human-approved agentic apply changes:
 |---|---:|
 | Package version | 0.2.0 |
 | Ruff | all checks passed |
-| Pytest | 1060 passed, 1 skipped |
+| Pytest | 1061 passed, 1 skipped |
 | Expected skip | Windows symlink privilege-dependent test |
 
 The published `0.1.2` audit remains above as historical evidence for the prior

@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import runpy
+import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -75,6 +76,38 @@ def _assert_benchmark_payload(payload: dict, script_name: str) -> None:
         assert metadata["workload_family"] == "toy_transformer_text_classification"
     else:
         assert metadata["workload_family"] == "dataloader_training"
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("torch") is None,
+    reason="PyTorch is not installed in this environment.",
+)
+def test_dataloader_optimized_runs_with_workers() -> None:
+    # Regression test: full (non --quick) mode sets num_workers>0, which requires
+    # a picklable module-level Dataset under the spawn start method (Windows/macOS).
+    # A closure Dataset previously crashed here with an EOFError/pickle error.
+    script_path = EXAMPLE_DIR / "dataloader_training_optimized.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(script_path),
+            "--benchmark-json",
+            "--steps",
+            "3",
+            "--warmup-steps",
+            "1",
+        ],
+        cwd=str(EXAMPLE_DIR),
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["metadata"]["num_workers"] >= 1
+    assert payload["results"][0]["status"] == "ok"
 
 
 def _run_example_script(script_name: str) -> tuple[str, str]:

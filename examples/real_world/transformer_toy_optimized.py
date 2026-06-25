@@ -27,8 +27,8 @@ def main() -> None:
     device, cuda_available = resolve_device(torch, args.device)
     batch_size = 8 if args.quick else args.batch_size
     sequence_length = 16 if args.quick else args.sequence_length
-    warmup_steps = 1 if args.quick else args.warmup_steps
-    measured_steps = 2 if args.quick else args.steps
+    warmup_steps = 3 if args.quick else args.warmup_steps
+    measured_steps = 10 if args.quick else args.steps
 
     model = TinyTransformerClassifier(torch, args.vocab_size, sequence_length).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0.001)

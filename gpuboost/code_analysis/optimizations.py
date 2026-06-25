@@ -190,7 +190,10 @@ class OptimizationFindingVisitor(BaseFindingVisitor):
             ),
             suggested_action=(
                 "If your model is AMP-safe, wrap the forward pass and loss "
-                "computation with torch.amp.autocast('cuda')."
+                "computation with torch.amp.autocast('cuda'). AMP mainly helps "
+                "large, compute-bound models (big Linear/Conv/attention) at an "
+                "adequate batch size on Tensor Core GPUs; it can be slower for "
+                "tiny models or small batches, so benchmark before keeping it."
             ),
             code_snippet=(
                 "with torch.amp.autocast('cuda'):\n"

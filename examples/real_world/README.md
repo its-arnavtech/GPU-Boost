@@ -31,6 +31,14 @@ python examples/real_world/pytorch_cnn_baseline.py --quick --benchmark-json
 python examples/real_world/pytorch_cnn_optimized.py --quick --benchmark-json
 ```
 
+**Measurement caveat.** These workloads are intentionally tiny, so their per-step
+time is dominated by launch overhead and is noisy run-to-run. `--quick` runs only
+a handful of steps and is a smoke test, not a measurement — do not treat a single
+`--quick` baseline-vs-optimized delta as a real speedup. For actual numbers, pass
+`--steps 50` (or more) and compare the median of several runs, and prefer
+`python -m gpuboost benchmark --recommend`, whose larger, steadier workloads give
+a far more reliable signal.
+
 When `--benchmark-json` is passed, stdout contains only benchmark-compatible
 JSON:
 

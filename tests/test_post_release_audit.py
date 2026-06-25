@@ -79,7 +79,7 @@ def test_readme_links_current_post_release_audit_evidence() -> None:
     assert "Validated on one local machine" in text
     assert "1044 passed" in text
     assert "Current 0.2.0 Validation" in text
-    assert "1060 passed, 1 skipped" in text
+    assert "1061 passed, 1 skipped" in text
     assert AUDIT_DOC.exists()
 
 

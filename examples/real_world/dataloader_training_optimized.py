@@ -27,12 +27,19 @@ def main() -> None:
     set_deterministic_seed(torch, 1403)
     device, cuda_available = resolve_device(torch, args.device)
     batch_size = 16 if args.quick else args.batch_size
-    warmup_steps = 1 if args.quick else args.warmup_steps
-    measured_steps = 2 if args.quick else args.steps
+    warmup_steps = 3 if args.quick else args.warmup_steps
+    measured_steps = 10 if args.quick else args.steps
+    # num_workers>0 helps when data loading/preprocessing is the bottleneck
+    # (e.g. real image datasets with disk I/O or augmentation). For this tiny
+    # in-memory synthetic dataset it adds process-spawn overhead and is often
+    # slower than num_workers=0 -- especially on Windows, which uses spawn. The
+    # dataset is defined at module scope so it stays picklable for spawn workers.
     num_workers = 0 if args.quick else min(2, os.cpu_count() or 1)
     dataset_size = batch_size * (warmup_steps + measured_steps + 2)
 
-    dataset = SyntheticTabularDataset(torch, dataset_size, args.feature_size)
+    features = torch.randn(dataset_size, args.feature_size)
+    labels = torch.arange(dataset_size, dtype=torch.long) % 4
+    dataset = SyntheticTabularDataset(features, labels)
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
@@ -97,21 +104,21 @@ def main() -> None:
 
 
 class SyntheticTabularDataset:
-    """Factory for a deterministic synthetic Dataset."""
+    """Module-level map-style dataset.
 
-    def __new__(cls, torch_module, size: int, feature_size: int):
-        class _Dataset(torch_module.utils.data.Dataset):
-            def __init__(self) -> None:
-                self.features = torch_module.randn(size, feature_size)
-                self.labels = torch_module.arange(size, dtype=torch_module.long) % 4
+    Defined at module scope (not as a closure) so it is picklable for
+    DataLoader worker processes under the Windows/macOS ``spawn`` start method.
+    """
 
-            def __len__(self) -> int:
-                return size
+    def __init__(self, features, labels) -> None:
+        self.features = features
+        self.labels = labels
 
-            def __getitem__(self, index: int):
-                return self.features[index], self.labels[index]
+    def __len__(self) -> int:
+        return int(self.features.shape[0])
 
-        return _Dataset()
+    def __getitem__(self, index: int):
+        return self.features[index], self.labels[index]
 
 
 def _parse_args() -> argparse.Namespace:
